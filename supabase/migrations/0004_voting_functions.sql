@@ -126,6 +126,7 @@ declare
   v_sum int;
   v_slot int;
   v_quantity int;
+  v_quantity_numeric numeric;
   v_candidate_id uuid;
   v_is_null boolean;
   v_seen_keys text[];
@@ -221,12 +222,17 @@ begin
         raise exception 'INVALID_PAYLOAD';
       end if;
 
-      v_quantity := (v_allocation ->> 'quantity')::int;
-      v_is_null := coalesce((v_allocation ->> 'is_null_vote')::boolean, false);
+      -- Cast para numeric primeiro: um cast direto para ::int falha com um
+      -- erro bruto do Postgres (não a exceção INVALID_PAYLOAD) para valores
+      -- como 1.5. numeric aceita qualquer number do JSON sem erro.
+      v_quantity_numeric := (v_allocation ->> 'quantity')::numeric;
 
-      if v_quantity <> (v_allocation ->> 'quantity')::numeric or v_quantity < 0 then
+      if v_quantity_numeric <> trunc(v_quantity_numeric) or v_quantity_numeric < 0 then
         raise exception 'INVALID_PAYLOAD';
       end if;
+
+      v_quantity := v_quantity_numeric::int;
+      v_is_null := coalesce((v_allocation ->> 'is_null_vote')::boolean, false);
 
       if v_quantity = 0 then
         continue;

@@ -47,7 +47,17 @@ begin
     v_vacancies := case when v_election.type = 'runoff' then v_election.runoff_vacancies
       else (select vacancies from positions where id = v_position.id) end;
 
-    with counts as (
+    with eligible_candidates as (
+      select cp.candidate_id
+      from candidate_positions cp
+      join candidates c on c.id = cp.candidate_id
+      where v_election.type = 'general' and cp.position_id = v_position.id and c.active = true
+      union
+      select rc.candidate_id
+      from runoff_candidates rc
+      where v_election.type = 'runoff' and rc.runoff_election_id = p_election_id
+    ),
+    vote_counts as (
       select bc.candidate_id, count(*)::int as votes_count
       from ballot_choices bc
       join ballots b on b.id = bc.ballot_id
@@ -55,6 +65,13 @@ begin
         and bc.position_id = v_position.id
         and bc.is_null_vote = false
       group by bc.candidate_id
+    ),
+    -- Todo candidato elegível entra no resultado, mesmo com 0 votos
+    -- (seção 51 exige mostrar a classificação completa, não só quem votou).
+    counts as (
+      select ec.candidate_id, coalesce(vc.votes_count, 0) as votes_count
+      from eligible_candidates ec
+      left join vote_counts vc on vc.candidate_id = ec.candidate_id
     ),
     ranked as (
       select
