@@ -1,6 +1,6 @@
 # Documento Técnico — Sistema de Eleição da Comissão de Formatura (Turma 36 — Medicina UniEVANGÉLICA)
 
-Status: **proposta para aprovação**. Nenhum código de aplicação foi escrito ainda — conforme o próprio processo solicitado (seção 101 do prompt mestre), este documento precede a implementação. Seções marcadas com ⚠️ **DECISÃO PENDENTE** descrevem pontos em que fiz uma escolha razoável de engenharia (não uma regra eleitoral inventada) e que preciso que você confirme ou ajuste antes de começar a implementar.
+Status: **aprovado, em implementação**. As decisões de engenharia abaixo (D1–D6) foram confirmadas pelo responsável do projeto em 2026-09-12; a implementação segue este documento como referência.
 
 ---
 
@@ -121,16 +121,18 @@ election_phases (
   )),
   starts_on date not null,
   ends_on date not null,
-  start_time time null,   -- NULL até o admin configurar (seção 7: "não inventar horários")
-  end_time time null,
+  start_time time not null default '00:00',
+  end_time time not null default '23:59:59',
+  time_configured boolean not null default false, -- true assim que o admin salvar um horário explícito
   display_order int not null,
   unique (election_id, phase_key),
   created_at, updated_at
 )
 -- starts_at/ends_at efetivos = (starts_on/ends_on + start_time/end_time).
--- Enquanto start_time/end_time de uma fase crítica (votacao) estiver NULL,
--- o sistema NUNCA autoriza a transição automática para aquela fase — ver
--- decisão pendente (D1).
+-- Decisão D1 (confirmada): até o admin configurar o horário exato, a fase usa
+-- o padrão 00:00–23:59:59 do próprio dia, permitindo a transição automática
+-- de status mesmo sem configuração explícita. O dashboard admin sinaliza
+-- fases com time_configured = false como pendência a revisar.
 
 positions (
   id uuid pk,
@@ -439,15 +441,13 @@ Conforme lista da seção 91 do prompt mestre — já refletida na árvore de `c
 
 ---
 
-## Decisões pendentes (preciso da sua confirmação antes de implementar)
+## Decisões de engenharia (confirmadas em 2026-09-12)
 
-Estas não são regras eleitorais da especificação — são escolhas de engenharia necessárias para implementar o que foi pedido. Vou seguir com as opções recomendadas (primeira de cada lista) se você não quiser entrar em detalhe agora, mas prefiro confirmar antes de gerar as migrations.
+- **D1 — Horários de fase não configurados.** ✅ Confirmado (b): até o admin configurar `start_time`/`end_time`, a fase usa o padrão 00:00–23:59:59 do dia cadastrado, permitindo transição automática de status; `time_configured=false` fica sinalizado no dashboard como pendência de revisão.
+- **D2 — `ballots` sem `voter_id`.** ✅ Confirmado: separação total, vínculo eleitor→voto só em `audit_vote_links`.
+- **D3 — Criptografia de auditoria agora.** Sem resposta explícita nesta rodada — segue o recomendado: apenas isolamento estrutural (tabela + RLS deny-all, nenhuma rota) nesta fase; `AUDIT_ENCRYPTION_KEY`/papel de auditoria adicional ficam documentados como evolução futura.
+- **D4 — Retenção de `security_events`/`ip_hash`.** Sem resposta explícita — segue o recomendado: retenção de 90 dias, expurgo manual (sem cron automático nesta fase).
+- **D5 — Rate limiting sem Redis.** ✅ Confirmado: tabela `rate_limit_counters` no Postgres, sem dependência externa.
+- **D6 — Hospedagem/deploy.** ✅ Confirmado: Vercel + Supabase Cloud como ambiente alvo; ainda não há projeto Supabase provisionado. As migrations serão entregues prontas para rodar (`supabase db push` / CLI) assim que o projeto for criado; README documenta o passo a passo.
 
-- **D1 — Horários de fase não configurados.** Enquanto o admin não configurar `start_time`/`end_time` de uma fase (ex.: votação), o sistema deve: (a) **recomendado** nunca transicionar automaticamente para essa fase (trava o status em "Aguardando votação" indefinidamente até configurar) ou (b) assumir um horário padrão (ex.: 00:00–23:59) só até o admin ajustar?
-- **D2 — `ballots` sem `voter_id`.** Confirmar que a separação total (voto anônimo por padrão; vínculo só em `audit_vote_links`, tabela isolada e sem leitura em nenhuma rota/admin comum) é o design desejado — é a leitura mais forte da seção 42–44.
-- **D3 — Criptografia de auditoria agora.** A seção 44 pede "projetar para permitir futuramente" — não implementar agora. Confirmo que por ora basta isolamento estrutural (tabela + RLS deny-all, sem rota alguma) e que `AUDIT_ENCRYPTION_KEY`/papel de auditoria adicional ficam documentados como evolução futura, não implementados nesta fase?
-- **D4 — Retenção de `security_events`/`ip_hash`.** Proponho reter por 90 dias com expurgo manual (sem cron automático nesta fase, já que não há infraestrutura de jobs agendados definida). Período e mecanismo ok?
-- **D5 — Rate limiting sem Redis.** Proponho implementar via tabela `rate_limit_counters` no próprio Postgres (simples, sem dependência externa) em vez de um serviço externo (Upstash/Redis). Isso é suficiente para o volume de uma eleição de turma, mas se vocês já têm Upstash disponível no projeto, posso usar — me avise.
-- **D6 — Hospedagem/deploy.** Vou assumir Vercel (Next.js) + Supabase Cloud como ambiente alvo, documentando variáveis de ambiente e passos de deploy no README. Confirma, ou já existe um projeto Supabase específico (URL/chaves) que devo usar?
-
-Assim que confirmar (ou aprovar os defaults recomendados), começo a implementação pelas migrations SQL + schema, seguido da estrutura de páginas e componentes.
+Implementação em andamento a partir deste ponto.
