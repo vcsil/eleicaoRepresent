@@ -146,6 +146,7 @@ end;
 $$;
 
 revoke all on function public.compute_results(uuid) from public, anon, authenticated;
+grant execute on function public.compute_results(uuid) to service_role;
 
 -- =========================================================================
 -- publish_results — seção 50. Bloqueia publicação enquanto houver empate
@@ -190,6 +191,7 @@ end;
 $$;
 
 revoke all on function public.publish_results(uuid) from public, anon, authenticated;
+grant execute on function public.publish_results(uuid) to service_role;
 
 -- =========================================================================
 -- resolve_dual_winner_decision — seções 53-54. Promove o próximo colocado
@@ -280,6 +282,7 @@ end;
 $$;
 
 revoke all on function public.resolve_dual_winner_decision(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.resolve_dual_winner_decision(uuid, uuid) to service_role;
 
 -- =========================================================================
 -- create_runoff_election — seção 56. Cria a eleição de desempate vinculada
@@ -329,3 +332,4 @@ end;
 $$;
 
 revoke all on function public.create_runoff_election(uuid, uuid, uuid[], int, int, text, date, date, time, time) from public, anon, authenticated;
+grant execute on function public.create_runoff_election(uuid, uuid, uuid[], int, int, text, date, date, time, time) to service_role;

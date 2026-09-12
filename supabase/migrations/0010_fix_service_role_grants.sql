@@ -1,24 +1,10 @@
--- Cálculo de status (fonte da verdade — seção 5.2/9) e utilitários de
--- segurança (rate limiting). Tudo baseado em now() do Postgres, nunca no
--- relógio do cliente.
-
-create or replace function public.election_phase_bounds(
-  p_election_id uuid,
-  p_phase_key text,
-  out starts_at timestamptz,
-  out ends_at timestamptz,
-  out time_configured boolean
-)
-language sql
-stable
-as $$
-  select
-    (ep.starts_on::text || ' ' || ep.start_time::text)::timestamp at time zone 'America/Sao_Paulo',
-    (ep.ends_on::text || ' ' || ep.end_time::text)::timestamp at time zone 'America/Sao_Paulo',
-    ep.time_configured
-  from election_phases ep
-  where ep.election_id = p_election_id and ep.phase_key = p_phase_key;
-$$;
+-- Correção para projetos que já aplicaram 0001-0009. Não invente nada de
+-- novo aqui: mesmo corpo de compute_election_status, só com
+-- SECURITY DEFINER + search_path; e os GRANTs que faltaram depois de cada
+-- REVOKE ALL ... FROM PUBLIC (que também tira o acesso implícito que
+-- service_role herdaria de PUBLIC — service_role só ganha BYPASSRLS,
+-- ignora *policies* de RLS, mas continua sujeito à ACL normal de
+-- GRANT/REVOKE do Postgres).
 
 create or replace function public.compute_election_status(p_election_id uuid)
 returns text
@@ -146,58 +132,14 @@ begin
 end;
 $$;
 
--- =========================================================================
--- Rate limiting progressivo (seção 24/61) — sem depender de serviço externo.
--- Retorna true se a tentativa é permitida, false se bloqueada.
--- =========================================================================
-create or replace function public.check_and_increment_rate_limit(
-  p_scope text,
-  p_key_hash text,
-  p_window_seconds int default 300,
-  p_max_attempts int default 5,
-  p_block_seconds int default 120
-)
-returns boolean
-language plpgsql
-security definer
-set search_path = public, extensions, pg_temp
-as $$
-declare
-  v_window_start timestamptz;
-  v_attempts int;
-  v_recent_block timestamptz;
-begin
-  select blocked_until into v_recent_block
-  from rate_limit_counters
-  where scope = p_scope and key_hash = p_key_hash
-  order by window_start desc
-  limit 1;
-
-  if v_recent_block is not null and v_recent_block > now() then
-    return false;
-  end if;
-
-  v_window_start := to_timestamp(
-    floor(extract(epoch from now()) / p_window_seconds) * p_window_seconds
-  );
-
-  insert into rate_limit_counters (scope, key_hash, window_start, attempts)
-  values (p_scope, p_key_hash, v_window_start, 1)
-  on conflict (scope, key_hash, window_start)
-  do update set attempts = rate_limit_counters.attempts + 1
-  returning attempts into v_attempts;
-
-  if v_attempts > p_max_attempts then
-    update rate_limit_counters
-    set blocked_until = now() +
-      (p_block_seconds * least(v_attempts - p_max_attempts, 6)) * interval '1 second'
-    where scope = p_scope and key_hash = p_key_hash and window_start = v_window_start;
-    return false;
-  end if;
-
-  return true;
-end;
-$$;
-
-revoke all on function public.check_and_increment_rate_limit(text, text, int, int, int) from public, anon, authenticated;
+-- GRANTs que faltaram depois de cada REVOKE ALL ... FROM PUBLIC nas
+-- migrations anteriores. Todas essas funções são chamadas exclusivamente
+-- via createServiceClient() (service_role) a partir de Server Actions.
 grant execute on function public.check_and_increment_rate_limit(text, text, int, int, int) to service_role;
+grant execute on function public.validate_voter(uuid, text, text, text, text, int) to service_role;
+grant execute on function public.cast_ballot(text, jsonb) to service_role;
+grant execute on function public.compute_results(uuid) to service_role;
+grant execute on function public.publish_results(uuid) to service_role;
+grant execute on function public.resolve_dual_winner_decision(uuid, uuid) to service_role;
+grant execute on function public.create_runoff_election(uuid, uuid, uuid[], int, int, text, date, date, time, time) to service_role;
+grant execute on function public.increment_page_view(text) to service_role;

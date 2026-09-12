@@ -215,4 +215,6 @@ end;
 $$;
 
 revoke all on function public.compute_results(uuid) from public, anon, authenticated;
+grant execute on function public.compute_results(uuid) to service_role;
 revoke all on function public.resolve_dual_winner_decision(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.resolve_dual_winner_decision(uuid, uuid) to service_role;

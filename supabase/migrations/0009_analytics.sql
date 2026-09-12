@@ -11,3 +11,4 @@ as $$
 $$;
 
 revoke all on function public.increment_page_view(text) from public, anon, authenticated;
+grant execute on function public.increment_page_view(text) to service_role;

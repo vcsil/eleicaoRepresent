@@ -84,6 +84,7 @@ end;
 $$;
 
 revoke all on function public.validate_voter(uuid, text, text, text, text, int) from public, anon, authenticated;
+grant execute on function public.validate_voter(uuid, text, text, text, text, int) to service_role;
 
 -- =========================================================================
 -- cast_ballot — seções 26-40, 86. Transação atômica única; nenhum total é
@@ -299,3 +300,4 @@ end;
 $$;
 
 revoke all on function public.cast_ballot(text, jsonb) from public, anon, authenticated;
+grant execute on function public.cast_ballot(text, jsonb) to service_role;

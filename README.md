@@ -68,6 +68,7 @@ Nunca use o prefixo `NEXT_PUBLIC_` em nenhuma das variáveis marcadas "Não".
    supabase/migrations/0007_storage.sql
    supabase/migrations/0008_result_snapshot_denormalization.sql
    supabase/migrations/0009_analytics.sql
+   supabase/migrations/0010_fix_service_role_grants.sql
    ```
 4. Rode `supabase/seed.sql` para cadastrar a eleição principal, os 6 cargos
    (13 vagas) e o cronograma oficial (seção 7 do documento técnico) — os
@@ -80,6 +81,16 @@ Nunca use o prefixo `NEXT_PUBLIC_` em nenhuma das variáveis marcadas "Não".
 
 O bucket de Storage `candidate-photos` (fotos dos candidatos) é criado pela
 migration `0007_storage.sql`.
+
+> **Já aplicou as migrations 0001-0009 antes de 10/2026?** Um `REVOKE ALL
+> ... FROM PUBLIC` em várias funções também removia, sem querer, o acesso
+> implícito que `service_role` herdava de `PUBLIC` (`service_role` só tem
+> `BYPASSRLS` — ignora *policies* de RLS — mas continua sujeito à ACL normal
+> de `GRANT`/`REVOKE`), e `compute_election_status` não era `SECURITY
+> DEFINER`. Isso quebrava login, validação do eleitor, envio de voto,
+> apuração, publicação e desempates com "permission denied for function/
+> table ...". Basta rodar `supabase/migrations/0010_fix_service_role_grants.sql`
+> no projeto existente — não precisa reaplicar nada anterior.
 
 ## Desenvolvimento
 
