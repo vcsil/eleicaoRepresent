@@ -2,11 +2,13 @@ import type { Metadata } from "next";
 import { getActivePositions } from "@/lib/election/positions";
 import { PositionsGrid } from "@/components/positions/PositionsGrid";
 import { EmptyState } from "@/components/feedback/EmptyState";
+import { trackPageView } from "@/lib/analytics/track";
 
 export const metadata: Metadata = { title: "Cargos" };
 export const dynamic = "force-dynamic";
 
 export default async function CargosPage() {
+  trackPageView("/cargos");
   const positions = await getActivePositions();
 
   return (

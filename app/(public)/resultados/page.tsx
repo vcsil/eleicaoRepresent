@@ -7,6 +7,7 @@ import { candidatePhotoUrl } from "@/lib/media/candidate-photo";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/feedback/EmptyState";
+import { trackPageView } from "@/lib/analytics/track";
 
 export const metadata: Metadata = { title: "Resultados" };
 export const dynamic = "force-dynamic";
@@ -22,6 +23,7 @@ function initials(name: string): string {
 }
 
 export default async function ResultadosPage() {
+  trackPageView("/resultados");
   const election = await getMainElection();
 
   if (!election) {

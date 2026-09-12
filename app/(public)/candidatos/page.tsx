@@ -3,11 +3,13 @@ import { getActiveCandidates } from "@/lib/election/candidates";
 import { getActivePositions } from "@/lib/election/positions";
 import { CandidatesExplorer } from "@/components/candidates/CandidatesExplorer";
 import { EmptyState } from "@/components/feedback/EmptyState";
+import { trackPageView } from "@/lib/analytics/track";
 
 export const metadata: Metadata = { title: "Candidatos" };
 export const dynamic = "force-dynamic";
 
 export default async function CandidatosPage() {
+  trackPageView("/candidatos");
   const [candidates, positions] = await Promise.all([
     getActiveCandidates(),
     getActivePositions(),

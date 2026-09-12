@@ -3,11 +3,13 @@ import { getMainElection, getElectionStatus, isVotingOpen } from "@/lib/election
 import { VoterValidationForm } from "@/components/vote/VoterValidationForm";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Button } from "@/components/ui/Button";
+import { trackPageView } from "@/lib/analytics/track";
 
 export const metadata: Metadata = { title: "Votar" };
 export const dynamic = "force-dynamic";
 
 export default async function VotarPage() {
+  trackPageView("/votar");
   const election = await getMainElection();
 
   if (!election) {

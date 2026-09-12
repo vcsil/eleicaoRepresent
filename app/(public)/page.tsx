@@ -9,6 +9,7 @@ import { ParticipationProgress } from "@/components/election/ParticipationProgre
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/feedback/EmptyState";
+import { trackPageView } from "@/lib/analytics/track";
 
 // Status, cronograma e participação nunca podem vir de cache estático —
 // sempre calculados no servidor a cada requisição (seção 6/47).
@@ -34,6 +35,7 @@ const PILLARS = [
 ];
 
 export default async function HomePage() {
+  trackPageView("/");
   const election = await getMainElection();
 
   if (!election) {
