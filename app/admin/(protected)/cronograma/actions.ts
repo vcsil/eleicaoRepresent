@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
+import { CACHE_TAGS } from "@/lib/cache/tags";
 import { scheduleUpdateSchema } from "@/lib/validation/schemas";
 import { createServiceClient } from "@/lib/supabase/service";
 import { logAdminAction } from "@/lib/admin/audit-log";
@@ -47,6 +48,10 @@ export async function updatePhaseAction(
 
   await logAdminAction("SCHEDULE_UPDATED", { electionId, ...parsed.data });
 
+  // A home mostra timeline e countdown a partir das fases: precisa
+  // refletir a alteração na próxima carga, sem depender de TTL.
+  updateTag(CACHE_TAGS.electionPhases);
+  updateTag(CACHE_TAGS.publicElection);
   revalidatePath("/admin/cronograma");
   revalidatePath("/");
   return { error: null, success: true };

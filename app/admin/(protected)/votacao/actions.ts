@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
+import { CACHE_TAGS } from "@/lib/cache/tags";
 import { createServiceClient } from "@/lib/supabase/service";
 import { logAdminAction } from "@/lib/admin/audit-log";
 
@@ -23,6 +24,8 @@ export async function closeVotingAction(
   if (error) return { error: "Não foi possível encerrar a votação." };
 
   await logAdminAction("VOTING_CLOSED_MANUALLY", { electionId });
+  // voting_closed_manually_at faz parte da linha cacheada da eleição.
+  updateTag(CACHE_TAGS.publicElection);
   revalidatePath("/admin/votacao");
   revalidatePath("/");
   return { error: null };
@@ -46,6 +49,7 @@ export async function computeResultsAction(
   }
 
   await logAdminAction("RESULTS_COMPUTED", { electionId });
+  updateTag(CACHE_TAGS.publicElection);
   revalidatePath("/admin/votacao");
   revalidatePath("/admin/resultados");
   revalidatePath("/admin/desempates");

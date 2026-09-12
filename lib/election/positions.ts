@@ -1,5 +1,7 @@
 import "server-only";
+import { unstable_cache } from "next/cache";
 import { createAnonClient } from "@/lib/supabase/server";
+import { CACHE_TAGS } from "@/lib/cache/tags";
 
 export type Position = {
   id: string;
@@ -15,7 +17,7 @@ export type Position = {
   display_order: number;
 };
 
-export async function getActivePositions(): Promise<Position[]> {
+async function fetchActivePositions(): Promise<Position[]> {
   const supabase = createAnonClient();
   const { data, error } = await supabase
     .from("positions")
@@ -28,3 +30,12 @@ export async function getActivePositions(): Promise<Position[]> {
   if (error) throw error;
   return (data ?? []) as Position[];
 }
+
+/**
+ * Cargos mudam raríssimas vezes: cacheado sem expiração por tempo,
+ * invalidado apenas por ação administrativa (tag `positions`).
+ */
+export const getActivePositions = unstable_cache(fetchActivePositions, ["active-positions"], {
+  tags: [CACHE_TAGS.positions],
+  revalidate: false,
+});

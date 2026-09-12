@@ -1,13 +1,25 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
+import { CACHE_TAGS } from "@/lib/cache/tags";
 import { candidateUpsertSchema } from "@/lib/validation/schemas";
 import { createServiceClient } from "@/lib/supabase/service";
 import { uploadCandidatePhoto, deleteCandidatePhoto, PhotoUploadError } from "@/lib/admin/photo-upload";
 import { logAdminAction } from "@/lib/admin/audit-log";
 
 export type CandidateFormState = { error: string | null };
+
+/**
+ * Qualquer alteração em candidato (criar, editar, ativar, desativar,
+ * trocar cargo, foto, vídeo) muda tanto a lista pública quanto as opções
+ * da urna — a urna nunca pode servir um candidato desatualizado.
+ * `updateTag` expira imediatamente e dá read-your-own-writes.
+ */
+function invalidateCandidateCaches(): void {
+  updateTag(CACHE_TAGS.candidates);
+  updateTag(CACHE_TAGS.ballotOptions);
+}
 
 export async function upsertCandidateAction(
   _prevState: CandidateFormState,
@@ -97,6 +109,7 @@ export async function upsertCandidateAction(
     fullName: parsed.data.full_name,
   });
 
+  invalidateCandidateCaches();
   revalidatePath("/admin/candidatos");
   revalidatePath("/candidatos");
   redirect("/admin/candidatos");
@@ -108,6 +121,7 @@ export async function setCandidateActiveAction(candidateId: string, active: bool
   if (error) throw error;
 
   await logAdminAction(active ? "CANDIDATE_REACTIVATED" : "CANDIDATE_DEACTIVATED", { candidateId });
+  invalidateCandidateCaches();
   revalidatePath("/admin/candidatos");
   revalidatePath("/candidatos");
 }

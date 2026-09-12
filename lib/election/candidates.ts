@@ -1,5 +1,7 @@
 import "server-only";
+import { unstable_cache } from "next/cache";
 import { createAnonClient } from "@/lib/supabase/server";
+import { CACHE_TAGS } from "@/lib/cache/tags";
 
 export type CandidateWithPositions = {
   id: string;
@@ -13,7 +15,7 @@ export type CandidateWithPositions = {
   positions: { id: string; slug: string; name: string }[];
 };
 
-export async function getActiveCandidates(): Promise<CandidateWithPositions[]> {
+async function fetchActiveCandidates(): Promise<CandidateWithPositions[]> {
   const supabase = createAnonClient();
   const { data, error } = await supabase
     .from("candidates")
@@ -52,3 +54,13 @@ export async function getActiveCandidates(): Promise<CandidateWithPositions[]> {
       .filter((p): p is { id: string; slug: string; name: string } => Boolean(p)),
   }));
 }
+
+/**
+ * Candidatos só mudam por ação administrativa: cacheado sem expiração
+ * por tempo, invalidado pelas tags `candidates` e `ballot-options`
+ * (a urna deriva suas opções desta mesma leitura).
+ */
+export const getActiveCandidates = unstable_cache(fetchActiveCandidates, ["active-candidates"], {
+  tags: [CACHE_TAGS.candidates, CACHE_TAGS.ballotOptions],
+  revalidate: false,
+});

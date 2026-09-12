@@ -1,5 +1,7 @@
 import "server-only";
+import { unstable_cache } from "next/cache";
 import { createAnonClient } from "@/lib/supabase/server";
+import { CACHE_TAGS } from "@/lib/cache/tags";
 
 /** Espelha o enum retornado por compute_election_status() no Postgres. */
 export const ELECTION_STATUSES = [
@@ -47,11 +49,7 @@ export type Election = {
   results_published_at: string | null;
 };
 
-/**
- * Retorna a eleição geral principal (assume-se uma única eleição geral
- * ativa por vez, conforme seção 82 do documento técnico).
- */
-export async function getMainElection(): Promise<Election | null> {
+async function fetchMainElection(): Promise<Election | null> {
   const supabase = createAnonClient();
   const { data, error } = await supabase
     .from("elections")
@@ -67,7 +65,23 @@ export async function getMainElection(): Promise<Election | null> {
   return data as Election | null;
 }
 
-/** Status autoritativo, sempre calculado no servidor (nunca no cliente). */
+/**
+ * Retorna a eleição geral principal (assume-se uma única eleição geral
+ * ativa por vez, conforme seção 82 do documento técnico).
+ *
+ * Cacheado: a linha só muda por ação administrativa (encerrar votação,
+ * apurar, publicar), e todas essas actions invalidam `public-election`.
+ */
+export const getMainElection = unstable_cache(fetchMainElection, ["main-election"], {
+  tags: [CACHE_TAGS.publicElection],
+  revalidate: false,
+});
+
+/**
+ * Status autoritativo, sempre calculado no servidor (nunca no cliente) e
+ * NUNCA cacheado: depende de now() do Postgres e é o que autoriza (ou
+ * nega) o acesso à urna.
+ */
 export async function getElectionStatus(electionId: string): Promise<ElectionStatus> {
   const supabase = createAnonClient();
   const { data, error } = await supabase.rpc("compute_election_status", {

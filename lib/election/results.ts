@@ -1,5 +1,7 @@
 import "server-only";
+import { unstable_cache } from "next/cache";
 import { createAnonClient } from "@/lib/supabase/server";
+import { CACHE_TAGS } from "@/lib/cache/tags";
 
 export type ResultSnapshotRow = {
   position_id: string;
@@ -22,7 +24,7 @@ export type ResultSnapshotRow = {
  * ativos — seção 51 exige mostrar o resultado histórico mesmo que um
  * candidato ou cargo seja desativado depois).
  */
-export async function getPublishedResults(electionId: string): Promise<ResultSnapshotRow[]> {
+async function fetchPublishedResults(electionId: string): Promise<ResultSnapshotRow[]> {
   const supabase = createAnonClient();
   const { data, error } = await supabase
     .from("result_snapshots")
@@ -35,3 +37,14 @@ export async function getPublishedResults(electionId: string): Promise<ResultSna
   if (error) throw error;
   return (data ?? []) as ResultSnapshotRow[];
 }
+
+/**
+ * Resultados publicados são imutáveis na prática: só mudam se o admin
+ * publicar, recalcular ou resolver uma pendência de composição — todas
+ * essas actions invalidam `published-results`. Antes da publicação a RLS
+ * já devolve vazio, e esse vazio também é invalidado na publicação.
+ */
+export const getPublishedResults = unstable_cache(fetchPublishedResults, ["published-results"], {
+  tags: [CACHE_TAGS.publishedResults],
+  revalidate: false,
+});

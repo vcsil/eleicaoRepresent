@@ -1,5 +1,7 @@
 import "server-only";
+import { unstable_cache } from "next/cache";
 import { createAnonClient } from "@/lib/supabase/server";
+import { CACHE_TAGS } from "@/lib/cache/tags";
 
 export type ElectionPhaseKey =
   | "edital"
@@ -24,7 +26,7 @@ export type ElectionPhase = {
   display_order: number;
 };
 
-export async function getElectionPhases(electionId: string): Promise<ElectionPhase[]> {
+async function fetchElectionPhases(electionId: string): Promise<ElectionPhase[]> {
   const supabase = createAnonClient();
   const { data, error } = await supabase
     .from("election_phases")
@@ -37,6 +39,17 @@ export async function getElectionPhases(electionId: string): Promise<ElectionPha
   if (error) throw error;
   return (data ?? []) as ElectionPhase[];
 }
+
+/**
+ * O cronograma só muda quando o admin salva em /admin/cronograma.
+ * O `electionId` entra na chave do cache automaticamente (argumento da
+ * função memoizada). O status autoritativo NÃO é cacheado — continua
+ * sendo calculado no Postgres a cada request.
+ */
+export const getElectionPhases = unstable_cache(fetchElectionPhases, ["election-phases"], {
+  tags: [CACHE_TAGS.electionPhases],
+  revalidate: false,
+});
 
 // America/Sao_Paulo está fixo em UTC-03:00 desde a extinção do horário de
 // verão no Brasil (Decreto 10.166/2019) — por isso um offset fixo é
