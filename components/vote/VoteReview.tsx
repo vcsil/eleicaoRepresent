@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { ConfirmationDialog } from "@/components/vote/ConfirmationDialog";
+import { ConfirmationDialog } from "@/components/ui/ConfirmationDialog";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import {
   BALLOT_DRAFT_STORAGE_KEY,

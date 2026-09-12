@@ -55,7 +55,13 @@ export async function adminLoginAction(
     return { error: GENERIC_ERROR };
   }
 
-  await createAdminSession(ipHash);
+  try {
+    await createAdminSession(ipHash);
+  } catch (err) {
+    console.error("createAdminSession failed", err);
+    return { error: "Não foi possível processar o login. Tente novamente." };
+  }
+
   await logAdminAction("ADMIN_LOGIN_SUCCESS", { ipHash });
   redirect("/admin/dashboard");
 }
