@@ -8,6 +8,9 @@ Arquitetura completa, schema do banco e o racional de cada decisão de
 segurança estão documentados em **[`docs/TECHNICAL_DESIGN.md`](docs/TECHNICAL_DESIGN.md)** —
 leia esse arquivo para entender o "porquê" das escolhas abaixo.
 
+Estratégia de cache, invalidação por tag e as medições de performance
+estão em **[`docs/PERFORMANCE_V2.md`](docs/PERFORMANCE_V2.md)**.
+
 ## Stack
 
 - Next.js 16 (App Router) + TypeScript + React 19
