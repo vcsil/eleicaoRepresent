@@ -88,6 +88,22 @@ grant select on result_snapshots to anon, authenticated;
 -- audit_vote_links, position_dual_winner_decisions, seat_reassignments,
 -- result_publications, admin_sessions, admin_logs, security_events,
 -- rate_limit_counters, site_access_stats. Nenhum GRANT é concedido a
--- anon/authenticated nessas tabelas — apenas o service_role (que ignora
--- RLS e GRANTs por padrão no Supabase) as acessa, sempre a partir de
--- Server Actions/Route Handlers.
+-- anon/authenticated nessas tabelas — apenas o service_role as acessa,
+-- sempre a partir de Server Actions/Route Handlers.
+--
+-- ---------------------------------------------------------------------
+-- service_role (seção 74): só tem o atributo BYPASSRLS (ignora as
+-- *policies* de RLS acima), mas continua sujeito à ACL normal de
+-- GRANT/REVOKE do Postgres — e, ao contrário de funções (que recebem
+-- EXECUTE a PUBLIC por padrão na criação), tabelas não recebem nenhum
+-- privilégio a PUBLIC por padrão. Sem este GRANT explícito, todo acesso
+-- direto a tabela feito pelo cliente service_role (fora das funções
+-- SECURITY DEFINER, que rodam com os privilégios do dono/criador das
+-- tabelas, não de service_role) falharia com "permission denied".
+-- service_role é o único papel de backend confiável do sistema —
+-- GRANT ALL (não só SELECT/INSERT) é intencional, não uma concessão
+-- granular por operação.
+-- ---------------------------------------------------------------------
+grant usage on schema public to service_role;
+grant all on all tables in schema public to service_role;
+grant all on all sequences in schema public to service_role;

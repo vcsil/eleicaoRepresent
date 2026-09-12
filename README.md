@@ -69,6 +69,7 @@ Nunca use o prefixo `NEXT_PUBLIC_` em nenhuma das variáveis marcadas "Não".
    supabase/migrations/0008_result_snapshot_denormalization.sql
    supabase/migrations/0009_analytics.sql
    supabase/migrations/0010_fix_service_role_grants.sql
+   supabase/migrations/0011_grant_service_role_tables.sql
    ```
 4. Rode `supabase/seed.sql` para cadastrar a eleição principal, os 6 cargos
    (13 vagas) e o cronograma oficial (seção 7 do documento técnico) — os
@@ -91,6 +92,15 @@ migration `0007_storage.sql`.
 > apuração, publicação e desempates com "permission denied for function/
 > table ...". Basta rodar `supabase/migrations/0010_fix_service_role_grants.sql`
 > no projeto existente — não precisa reaplicar nada anterior.
+>
+> **Já aplicou até a 0010 e ainda vê "permission denied for table ..."
+> (ex.: ao logar em `/admin`)?** Diferente de funções (que recebem
+> `EXECUTE` a `PUBLIC` por padrão na criação), tabelas não recebem
+> nenhum privilégio a `PUBLIC` — e nenhuma migration anterior jamais
+> concedeu nada a `service_role` em nenhuma tabela, então todo acesso
+> direto (`.from(tabela)`, fora das funções `SECURITY DEFINER`) estava
+> quebrado. Rode `supabase/migrations/0011_grant_service_role_tables.sql`
+> no projeto existente.
 
 ## Desenvolvimento
 
