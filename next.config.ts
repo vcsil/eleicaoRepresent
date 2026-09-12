@@ -11,6 +11,8 @@ const supabaseHostname = (() => {
 })();
 
 const nextConfig: NextConfig = {
+  // Evita que o Next regenere AGENTS.md/CLAUDE.md automaticamente a cada dev.
+  agentRules: false,
   images: {
     remotePatterns: [
       {

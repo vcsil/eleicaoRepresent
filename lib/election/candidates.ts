@@ -52,10 +52,3 @@ export async function getActiveCandidates(): Promise<CandidateWithPositions[]> {
       .filter((p): p is { id: string; slug: string; name: string } => Boolean(p)),
   }));
 }
-
-export function candidatePhotoUrl(photoPath: string | null): string | null {
-  if (!photoPath) return null;
-  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!base) return null;
-  return `${base}/storage/v1/object/public/candidate-photos/${photoPath}`;
-}
