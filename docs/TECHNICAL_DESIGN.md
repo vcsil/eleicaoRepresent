@@ -1,6 +1,6 @@
 # Documento Técnico — Sistema de Eleição da Comissão de Formatura (Turma 36 — Medicina UniEVANGÉLICA)
 
-Status: **aprovado, em implementação**. As decisões de engenharia abaixo (D1–D6) foram confirmadas pelo responsável do projeto em 2026-09-12; a implementação segue este documento como referência.
+Status: **implementado**. As decisões de engenharia abaixo (D1–D6) foram confirmadas pelo responsável do projeto em 2026-09-12; a implementação (schema, RLS, funções de votação/apuração, páginas públicas, fluxo de votação, painel administrativo e testes) segue este documento como referência e está completa — ver README.md para instruções de configuração e as "Limitações conhecidas" lá para o que fica para uma próxima iteração (migração para Supabase Auth, criptografia da camada de auditoria, UI dedicada de votação de desempate).
 
 ---
 
