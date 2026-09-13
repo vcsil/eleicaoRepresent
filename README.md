@@ -83,9 +83,10 @@ Nunca use o prefixo `NEXT_PUBLIC_` em nenhuma das variáveis marcadas "Não".
    horários exatos de cada fase ficam com o valor padrão 00:00–23:59:59 até
    serem configurados em `/admin/cronograma`.
 5. Gere o hash da senha administrativa e defina `ADMIN_PASSWORD_HASH`.
-6. Cadastre os eleitores habilitados na tabela `voters` (matrícula + nome
-   completo) — não há tela para isso, é feito diretamente no banco pela
-   administração, mantendo a lista fora de qualquer rota pública.
+6. Cadastre os eleitores habilitados em `/admin/eleitores`, importando a
+   lista oficial em `.csv` ou `.xlsx` (matrícula + nome completo). A lista
+   fica fora de qualquer rota pública — `voters` não tem policy de leitura
+   para `anon`. Também é possível inserir direto no banco, se preferir.
 
 O bucket de Storage `candidate-photos` (fotos dos candidatos) é criado pela
 migration `0007_storage.sql`.
@@ -252,6 +253,45 @@ rodadas lado a lado, cada uma com seus números.
 pendência permanece, `publish_results` recusa, e o administrador cria uma
 nova rodada — filha do desempate empatado. A cadeia de `RUNOFF_PENDING`
 resolve em ordem.
+
+## Importação de eleitores
+
+`/admin/eleitores` carrega a lista oficial a partir de `.csv` ou `.xlsx`.
+
+**Matrícula é sempre string.** No XLSX é lido o texto formatado da célula,
+não o valor numérico — converter perderia zeros à esquerda, e `001234`
+virar `1234` significa um eleitor que não consegue votar. Se a planilha já
+salvou a matrícula como número, o zero se perdeu no arquivo e nenhuma
+biblioteca o recupera.
+
+**O preview não é a importação.** O navegador lê o arquivo para dar
+resposta imediata, mas a Server Action **relê o arquivo original** e
+revalida antes de gravar. O que o cliente mostra nunca é insumo da
+gravação.
+
+**Colunas**: reconhecidas por variações comuns de cabeçalho (`Matrícula`,
+`matricula`, `RA`, `registration_number` / `Nome`, `Nome completo`,
+`Aluno`, `full_name`), comparando sem acento e sem caixa. Quando não há
+correspondência única — nenhuma, ou mais de uma candidata —, a tela pede
+que o administrador escolha. Adivinhar por posição importaria a lista
+inteira trocada.
+
+**Gravação transacional** via `import_voters` (migration `0017`): um bloco
+plpgsql, todas as linhas ou nenhuma. Inserts sequenciais pelo cliente
+Supabase seriam ~100 requisições sem transação, e uma falha no meio
+deixaria a lista pela metade.
+
+**O que a importação NUNCA faz**: remover eleitores ausentes do arquivo,
+resetar `has_voted`/`voted_at`, ou reativar quem está inativo. Eleitor já
+cadastrado tem apenas o `full_name` atualizado — e isso muda
+`normalized_name`, que é o campo comparado por `validate_voter`, então a
+pessoa passa a precisar da grafia nova para votar. A pré-visualização
+mostra cada alteração de nome antes da confirmação.
+
+**Votação aberta não bloqueia**, mas exige confirmação explícita — revalidada
+server-side — porque alterar a lista muda o total de habilitados e, com
+ele, o percentual de participação do pleito em curso. O fato fica
+registrado em `admin_logs` como `VOTERS_IMPORTED` com `during_open_voting`.
 
 ## Notas de arquitetura (segundo deploy)
 

@@ -7,6 +7,7 @@ import { adminLogoutAction } from "@/app/admin/actions";
 
 const LINKS = [
   { href: "/admin/dashboard", label: "Painel" },
+  { href: "/admin/eleitores", label: "Eleitores" },
   { href: "/admin/candidatos", label: "Candidatos" },
   { href: "/admin/cronograma", label: "Cronograma" },
   { href: "/admin/votacao", label: "Votação" },
