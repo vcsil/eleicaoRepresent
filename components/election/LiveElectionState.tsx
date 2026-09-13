@@ -170,10 +170,21 @@ export function LiveScheduleSection({ phases }: { phases: ElectionPhase[] }) {
 
   if (!countdown && !showParticipation) return null;
 
+  // Hora do servidor como âncora do primeiro render do cronômetro: é o que
+  // faz servidor e cliente produzirem o mesmo markup. Vem do mesmo payload
+  // do polling, então cada ciclo de 30s também ressincroniza o relógio.
+  const serverNowMs = new Date(state.serverTime).getTime();
+
   return (
     <section className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
       <div className="grid gap-4 sm:grid-cols-2">
-        {countdown && <Countdown label={countdown.label} targetIso={countdown.targetIso} />}
+        {countdown && (
+          <Countdown
+            label={countdown.label}
+            targetIso={countdown.targetIso}
+            serverNowMs={serverNowMs}
+          />
+        )}
         {showParticipation && (
           <div aria-live="polite">
             <ParticipationProgress percentage={state.participation as number} />

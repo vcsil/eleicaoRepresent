@@ -12,10 +12,44 @@ function getSupabaseHostname(): string {
 
 const supabaseHostname = getSupabaseHostname();
 
-function buildCsp(nonce: string): string {
+/**
+ * `'unsafe-eval'` APENAS em desenvolvimento, e por necessidade funcional
+ * comprovada — não para calar o aviso do React.
+ *
+ * O runtime de dev do Turbopack aplica hot updates com
+ * `_eval(code)` (passado como `evalModuleEntry` ao aplicador de update).
+ * Com a CSP estrita, esse caminho é bloqueado e o Fast Refresh degrada
+ * para recarga completa da página a cada salvamento — perdendo o estado
+ * do componente, o que no meio da urna significa perder a distribuição
+ * de votos em andamento. Verificado por A/B em Chromium: sem a diretiva,
+ * "[Fast Refresh] performing full reload"; com ela, "done in 2ms" e o
+ * estado preservado.
+ *
+ * O React também chama `(0, eval)("null")` como sonda de capacidade, em
+ * try/catch, só para avisar que owner stacks ficarão degradadas.
+ *
+ * Em PRODUÇÃO a diretiva não entra, e não é dogma: o bundle de produção
+ * foi varrido (30 chunks de cliente) e não contém `eval(` nem
+ * `new Function(` — o bloco do React está atrás de um gate
+ * `"development"` e o `_eval` do Turbopack é runtime de dev. Conceder
+ * `'unsafe-eval'` em produção seria superfície de ataque sem nenhuma
+ * contrapartida.
+ */
+const isDevelopment = process.env.NODE_ENV === "development";
+
+export function buildCsp(nonce: string): string {
+  const scriptSrc = [
+    "script-src 'self'",
+    isDevelopment ? "'unsafe-eval'" : null,
+    `'nonce-${nonce}'`,
+    "'strict-dynamic'",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    scriptSrc,
     "style-src 'self' 'unsafe-inline'",
     `img-src 'self' data: https://${supabaseHostname}`,
     "font-src 'self' data:",

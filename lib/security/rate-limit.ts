@@ -1,12 +1,27 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/service";
 
-export type RateLimitScope = "voter_validate" | "admin_login";
+export type RateLimitScope =
+  | "voter_validate_ip"
+  | "voter_validate_registration"
+  | "admin_login";
 
+/**
+ * As duas dimensões da validação do eleitor têm tetos DIFERENTES porque
+ * medem coisas diferentes (seção 24).
+ *
+ * Por IP: a turma inteira costuma sair pelo mesmo IP público (wi-fi da
+ * faculdade, NAT). Um teto baixo aqui não barra atacante nenhum — barra
+ * eleitores legítimos votando em sequência, e o bloqueio ainda escala a
+ * cada nova tentativa. Vale só como contenção de abuso grosseiro.
+ *
+ * Por matrícula: este é o controle anti-força-bruta que importa. É ele que
+ * impede alguém de ficar tentando adivinhar o nome completo associado a
+ * uma matrícula específica. Continua estrito.
+ */
 const SCOPE_CONFIG: Record<RateLimitScope, { windowSeconds: number; maxAttempts: number; blockSeconds: number }> = {
-  // Seção 24: eleitores podem compartilhar a rede da universidade — limites
-  // progressivos, nunca bloqueio definitivo só por IP.
-  voter_validate: { windowSeconds: 300, maxAttempts: 8, blockSeconds: 60 },
+  voter_validate_ip: { windowSeconds: 300, maxAttempts: 100, blockSeconds: 60 },
+  voter_validate_registration: { windowSeconds: 300, maxAttempts: 10, blockSeconds: 60 },
   // Seção 61: login administrativo é alvo mais sensível a força bruta.
   admin_login: { windowSeconds: 300, maxAttempts: 5, blockSeconds: 120 },
 };

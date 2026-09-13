@@ -5,7 +5,11 @@ import { headers } from "next/headers";
 import { voterValidationSchema } from "@/lib/validation/schemas";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getMainElection } from "@/lib/election/status";
-import { setVoteSessionCookie, VOTE_SESSION_TTL_SECONDS } from "@/lib/election/vote-session";
+import {
+  clearVoteConfirmedCookie,
+  setVoteSessionCookie,
+  VOTE_SESSION_TTL_SECONDS,
+} from "@/lib/election/vote-session";
 import { getClientIp, summarizeUserAgent } from "@/lib/security/ip";
 import { hashIp, hashKey } from "@/lib/security/hashing";
 import { checkRateLimit } from "@/lib/security/rate-limit";
@@ -41,8 +45,8 @@ export async function validateVoterAction(
   // é assim que o contador por matrícula registra a tentativa de quem
   // troca de IP, e vice-versa.
   const [allowedByIp, allowedByRegistration] = await Promise.all([
-    checkRateLimit("voter_validate", ipHash),
-    checkRateLimit("voter_validate", registrationHash),
+    checkRateLimit("voter_validate_ip", ipHash),
+    checkRateLimit("voter_validate_registration", registrationHash),
   ]);
 
   if (!allowedByIp || !allowedByRegistration) {
@@ -104,6 +108,10 @@ export async function validateVoterAction(
     return { error: GENERIC_ERROR };
   }
 
+  // Dispositivo compartilhado: apaga a confirmação de quem votou antes,
+  // para o eleitor atual não encontrar "seu voto foi registrado" antes de
+  // ter votado. Aqui é permitido — estamos numa Server Action.
+  await clearVoteConfirmedCookie();
   await setVoteSessionCookie(result.token, new Date(result.expires_at));
   redirect("/votar/urna");
 }
