@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CACHE_TAGS } from "@/lib/cache/tags";
+import { createAdminRequestScope } from "@/tests/mocks/admin-request";
 
 /**
  * Garante que toda mutação administrativa invalida as tags certas do Data
@@ -19,11 +20,15 @@ vi.mock("next/cache", () => ({
   unstable_cache: <T>(fn: T) => fn,
 }));
 
-vi.mock("next/navigation", () => ({
-  redirect: () => {
-    throw new Error("NEXT_REDIRECT");
-  },
-}));
+/**
+ * Escopo de requisição administrativa: as actions abaixo começam com
+ * `requireAdminSession()`, que lê cookie. Sem isto, todas falham com
+ * "cookies was called outside a request scope" — e a guarda continua sendo
+ * executada de verdade, só com uma sessão válida simulada.
+ */
+const adminScope = createAdminRequestScope();
+vi.mock("next/headers", () => adminScope.nextHeaders());
+vi.mock("next/navigation", () => adminScope.nextNavigation());
 
 /** Query builder encadeável que sempre resolve sem erro. */
 function createQueryStub() {
@@ -39,7 +44,10 @@ function createQueryStub() {
 vi.mock("@/lib/supabase/service", () => ({
   createServiceClient: () => ({
     from: () => createQueryStub(),
-    rpc: async () => ({ data: null, error: null }),
+    rpc: async (fn: string) =>
+      fn === "check_admin_session"
+        ? adminScope.checkAdminSessionResult()
+        : { data: null, error: null },
   }),
 }));
 
@@ -62,6 +70,7 @@ const ELECTION_ID = "11111111-1111-4111-8111-111111111111";
 beforeEach(() => {
   updateTag.mockClear();
   revalidatePath.mockClear();
+  adminScope.reset();
 });
 
 function invalidatedTags(): string[] {

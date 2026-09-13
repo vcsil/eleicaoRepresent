@@ -77,6 +77,9 @@ Nunca use o prefixo `NEXT_PUBLIC_` em nenhuma das variáveis marcadas "Não".
    supabase/migrations/0013_runoff_multi_position_schema.sql
    supabase/migrations/0014_runoff_functions.sql
    supabase/migrations/0015_live_state_follows_active_election.sql
+   supabase/migrations/0016_admin_session_idle_timeout.sql
+   supabase/migrations/0017_import_voters.sql
+   supabase/migrations/0018_admin_idle_timeout_10min.sql
    ```
 4. Rode `supabase/seed.sql` para cadastrar a eleição principal, os 6 cargos
    (13 vagas) e o cronograma oficial (seção 7 do documento técnico) — os
@@ -117,6 +120,20 @@ migration `0007_storage.sql`.
 > nenhuma tabela nem nenhuma função existente; aplicar é seguro a qualquer
 > momento. **Antes de aplicar**, o painel e a home falham com "permission
 > denied for function ..." — as duas passaram a depender dela.
+>
+> **Já aplicou até a 0017?** A `0018_admin_idle_timeout_10min.sql` estende a
+> janela de inatividade do painel administrativo de 5 para 10 minutos. Ela
+> substitui `check_admin_session` (a `0016` não é editada, porque já está
+> aplicada) e estende as sessões abertas no momento para a janela nova, em
+> vez de deixá-las com o prazo antigo até o próximo heartbeat.
+>
+> O intervalo vive em dois lugares — dentro de `check_admin_session` e em
+> `ADMIN_IDLE_TIMEOUT_SECONDS` (`lib/admin/session-config.ts`) — e os dois
+> **precisam coincidir**: se o servidor conceder menos tempo do que a
+> interface acredita ter, o administrador é deslogado no meio de uma
+> operação, sem aviso. Aplicar o código sem esta migration produz exatamente
+> essa divergência. Um teste de integração compara a constante com o
+> intervalo que o banco de fato concede e quebra se divergirem.
 
 ## Desenvolvimento
 
