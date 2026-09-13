@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 
 /**
  * Modal centralizado em telas largas, bottom sheet em telas estreitas
@@ -11,14 +11,19 @@ export function Sheet({
   open,
   onClose,
   title,
+  descriptionId,
+  size = "default",
   children,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
+  descriptionId?: string;
+  size?: "default" | "wide";
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
 
   useEffect(() => {
     const dialog = ref.current;
@@ -35,11 +40,13 @@ export function Sheet({
       onClick={(e) => {
         if (e.target === ref.current) onClose();
       }}
-      aria-label={title}
-      className="fixed inset-x-0 bottom-0 m-0 w-full max-w-full rounded-t-2xl border-t border-border bg-surface p-0 shadow-lg backdrop:bg-foreground/40 backdrop:backdrop-blur-[2px] sm:inset-0 sm:m-auto sm:w-full sm:max-w-lg sm:rounded-2xl sm:border"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
+      className={`fixed inset-x-0 bottom-0 m-0 w-full max-w-full rounded-t-2xl border-t border-border bg-surface p-0 shadow-lg backdrop:bg-foreground/40 backdrop:backdrop-blur-[2px] sm:inset-0 sm:m-auto sm:w-full sm:rounded-2xl sm:border ${size === "wide" ? "sm:max-w-3xl" : "sm:max-w-lg"}`}
     >
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
-        <h2 className="text-base font-semibold text-foreground">{title}</h2>
+        <h2 id={titleId} className="text-base font-semibold text-foreground">{title}</h2>
         <button
           type="button"
           onClick={onClose}

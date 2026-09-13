@@ -5,6 +5,8 @@ import { getDashboardMetrics } from "@/lib/admin/metrics";
 import { MetricCard } from "@/components/admin/MetricCard";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { InvalidateCacheButton } from "@/components/admin/InvalidateCacheButton";
+import { SiteAccessCard } from "@/components/admin/SiteAccessCard";
+import { getDailySiteAccessStats } from "@/lib/admin/site-access";
 
 export const metadata: Metadata = { title: "Painel — Administração" };
 export const dynamic = "force-dynamic";
@@ -19,7 +21,13 @@ export default async function AdminDashboardPage() {
   // Um round trip: status, participação e todas as contagens vêm juntos de
   // get_admin_dashboard_metrics. Antes eram 3 chamadas (e, dentro da de
   // métricas, outras 7 em paralelo).
-  const metrics = await getDashboardMetrics(election.id);
+  const [metrics, dailySiteAccessStats] = await Promise.all([
+    getDashboardMetrics(election.id),
+    getDailySiteAccessStats(30).catch((error) => {
+      console.error("getDailySiteAccessStats failed", error);
+      return null;
+    }),
+  ]);
 
   return (
     <div>
@@ -31,7 +39,7 @@ export default async function AdminDashboardPage() {
         <MetricCard label="Eleitores habilitados" value={metrics.totalVoters} />
         <MetricCard label="Participação" value={`${metrics.participation.toFixed(1)}%`} />
         <MetricCard label="Candidatos ativos" value={metrics.totalCandidates} />
-        <MetricCard label="Acessos ao site" value={metrics.totalSiteViews} />
+        <SiteAccessCard value={metrics.totalSiteViews} data={dailySiteAccessStats} />
         <MetricCard label="Tentativas inválidas de validação" value={metrics.invalidAttempts} />
         <MetricCard label="Tentativas de voto duplicado" value={metrics.duplicateVoteAttempts} />
         <MetricCard label="Eventos de segurança" value={metrics.securityEvents} />
