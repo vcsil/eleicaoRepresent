@@ -289,8 +289,8 @@ export function VoterImportForm({ votingOpen }: { votingOpen: boolean }) {
             </ul>
           )}
 
-          <div className="mt-4 max-h-80 overflow-y-auto rounded-md border border-border">
-            <table className="w-full text-left text-sm">
+          <div className="mt-4 max-h-80 overflow-x-auto overflow-y-auto rounded-md border border-border">
+            <table className="w-full min-w-[34rem] text-left text-sm">
               <thead className="sticky top-0 bg-surface-muted text-xs uppercase text-foreground-muted">
                 <tr>
                   <th className="px-3 py-2">Linha</th>

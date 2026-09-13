@@ -23,7 +23,7 @@ export function ConfirmationDialog({
   return (
     <Sheet open={open} onClose={onCancel} title={title}>
       <p className="text-sm text-foreground-muted">{description}</p>
-      <div className="mt-6 flex justify-end gap-3">
+      <div className="mt-6 flex flex-wrap justify-end gap-3">
         <Button type="button" variant="secondary" onClick={onCancel} disabled={confirming}>
           Cancelar
         </Button>

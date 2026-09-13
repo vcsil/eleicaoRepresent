@@ -24,12 +24,23 @@ export function PhaseScheduleForm({ phase }: { phase: ElectionPhase }) {
         {!phase.time_configured && <Badge tone="warning">Horário padrão (não configurado)</Badge>}
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div>
+      {/*
+        Uma coluna até sm. Trilhas de grid têm min-width auto, e um
+        input[type=date] não encolhe abaixo da largura intrínseca dele: em vez
+        de se ajustar, transborda sobre a coluna vizinha. No iOS o efeito é
+        pior porque o Safari força 16px em controle de formulário (para não dar
+        zoom ao focar), inflando o input ~14% — em 393px ele pedia 159px numa
+        coluna de 158px, e data cobria horário.
+
+        Só 4 colunas a partir de lg: entre 640px e 768px, `sm:grid-cols-4`
+        dava 131px por coluna e transbordava 29px — pior que no celular.
+      */}
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="min-w-0">
           <label className="text-xs font-medium text-foreground-muted">Data inicial</label>
           <input type="date" name="starts_on" defaultValue={phase.starts_on} className={inputClass} required />
         </div>
-        <div>
+        <div className="min-w-0">
           <label className="text-xs font-medium text-foreground-muted">Hora inicial</label>
           <input
             type="time"
@@ -39,11 +50,11 @@ export function PhaseScheduleForm({ phase }: { phase: ElectionPhase }) {
             required
           />
         </div>
-        <div>
+        <div className="min-w-0">
           <label className="text-xs font-medium text-foreground-muted">Data final</label>
           <input type="date" name="ends_on" defaultValue={phase.ends_on} className={inputClass} required />
         </div>
-        <div>
+        <div className="min-w-0">
           <label className="text-xs font-medium text-foreground-muted">Hora final</label>
           <input
             type="time"

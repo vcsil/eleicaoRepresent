@@ -163,7 +163,7 @@ export default async function AdminDesempateDetalhePage({
                         key={row.candidate_id ?? "null"}
                         className="flex items-center justify-between gap-3 p-3 text-sm"
                       >
-                        <span className="text-foreground">
+                        <span className="min-w-0 break-words text-foreground">
                           {`${row.rank}º ${row.candidate_name}`}
                           {row.seat_label && (
                             <span className="ml-2 text-xs text-foreground-muted">
@@ -171,7 +171,7 @@ export default async function AdminDesempateDetalhePage({
                             </span>
                           )}
                         </span>
-                        <span className="flex items-center gap-2">
+                        <span className="flex shrink-0 items-center gap-2">
                           <span className="tabular-nums text-foreground-muted">
                             {row.votes_count} votos
                           </span>
