@@ -3,6 +3,7 @@ import { getActivePositions } from "@/lib/election/positions";
 import { getActiveCandidates } from "@/lib/election/candidates";
 import { createServiceClient } from "@/lib/supabase/service";
 import type { VoteSessionElection } from "@/lib/election/vote-session";
+import { compareCandidatesByName } from "@/lib/election/display-order";
 
 export type WizardPosition = {
   id: string;
@@ -29,7 +30,8 @@ async function getGeneralBallotOptions(): Promise<BallotOptions> {
   for (const position of positions) {
     candidatesByPosition[position.id] = candidates
       .filter((c) => c.positions.some((p) => p.id === position.id))
-      .map((c) => ({ id: c.id, full_name: c.full_name, photo_path: c.photo_path }));
+      .map((c) => ({ id: c.id, full_name: c.full_name, photo_path: c.photo_path }))
+      .sort(compareCandidatesByName);
   }
 
   return {
@@ -101,7 +103,7 @@ async function getRunoffBallotOptions(electionId: string): Promise<BallotOptions
   }
 
   for (const key of Object.keys(candidatesByPosition)) {
-    candidatesByPosition[key].sort((a, b) => a.full_name.localeCompare(b.full_name, "pt-BR"));
+    candidatesByPosition[key].sort(compareCandidatesByName);
   }
 
   return {
