@@ -72,7 +72,7 @@ export function AdminSidebar() {
         </div>
       )}
 
-      <aside className="hidden w-64 shrink-0 border-r border-border bg-surface p-4 lg:flex lg:flex-col lg:justify-between">
+      <aside className="hidden w-64 shrink-0 border-r border-border bg-surface p-4 lg:sticky lg:top-0 lg:flex lg:max-h-dvh lg:self-start lg:flex-col lg:justify-between lg:overflow-y-auto">
         <div>
           <p className="px-3 pb-4 text-sm font-semibold text-foreground">Administração</p>
           <NavLinks />
