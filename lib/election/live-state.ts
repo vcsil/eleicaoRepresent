@@ -21,6 +21,7 @@ export async function getLiveElectionState(electionId: string): Promise<LiveStat
     status?: unknown;
     participation?: unknown;
     server_time?: unknown;
+    active_election_id?: unknown;
   };
 
   if (!isElectionStatus(payload.status)) {
@@ -38,5 +39,7 @@ export async function getLiveElectionState(electionId: string): Promise<LiveStat
     serverTime:
       typeof payload.server_time === "string" ? payload.server_time : new Date().toISOString(),
     votingOpen: isVotingOpen(payload.status),
+    activeElectionId:
+      typeof payload.active_election_id === "string" ? payload.active_election_id : null,
   };
 }

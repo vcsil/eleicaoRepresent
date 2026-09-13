@@ -525,6 +525,89 @@ describe("eleição ativa (get_current_voting_election)", () => {
   });
 });
 
+describe("estado ao vivo acompanha a votação aberta", () => {
+  it("durante o desempate, a home recebe o status DELE, não o da geral", async () => {
+    const { electionId, position } = await setupTiedElection();
+    const runoffId = await createRunoff(electionId, [position.id]);
+
+    const [row] = await q("select get_live_election_state($1) as s", [electionId]);
+    const state = row.s as Record<string, unknown>;
+
+    // A geral, sozinha, estaria em 'desempate_necessario' — status correto
+    // sobre ela, mas que não levava ninguém à urna.
+    expect(state.status).toBe("votacao_desempate");
+    expect(state.active_election_id).toBe(runoffId);
+    expect(state.participation).not.toBeNull();
+  });
+
+  it("sem votação aberta, devolve o status da própria eleição", async () => {
+    const { electionId } = await setupTiedElection();
+    const [row] = await q("select get_live_election_state($1) as s", [electionId]);
+    const state = row.s as Record<string, unknown>;
+
+    expect(state.status).toBe("desempate_necessario");
+    expect(state.active_election_id).toBeNull();
+    expect(state.participation).toBeNull();
+  });
+
+  it("não expõe nada além de status, participação, hora e eleição ativa", async () => {
+    const { electionId } = await setupTiedElection();
+    const [row] = await q("select get_live_election_state($1) as s", [electionId]);
+    expect(Object.keys(row.s as object).sort()).toEqual([
+      "active_election_id",
+      "participation",
+      "server_time",
+      "status",
+    ]);
+  });
+});
+
+describe("origem da eleição no resultado público", () => {
+  it("runoff_resolutions fica legível quando a eleição principal é publicada", async () => {
+    const base = await setupTiedElection();
+    const runoffId = await createRunoff(base.electionId, [base.position.id]);
+    const escolhas = [base.ana, base.ana, base.ana, base.bruno, base.bruno];
+    for (let i = 0; i < 5; i += 1) {
+      await voteAs(
+        runoffId,
+        base.voters[i].registrationNumber,
+        `Eleitor ${i + 1}`,
+        singleChoice(base.position.id, escolhas[i]),
+      );
+    }
+    await closeVoting(runoffId);
+    await computeResults(runoffId);
+    await publishResults(runoffId);
+
+    const client = await pool.connect();
+    try {
+      // antes de publicar a principal: invisível para o público
+      await client.query("begin");
+      await client.query("set local role anon");
+      const antes = await client.query("select * from runoff_resolutions");
+      await client.query("commit");
+      expect(antes.rows).toHaveLength(0);
+    } finally {
+      client.release();
+    }
+
+    await publishResults(base.electionId);
+
+    const client2 = await pool.connect();
+    try {
+      await client2.query("begin");
+      await client2.query("set local role anon");
+      const depois = await client2.query("select candidate_id, votes_in_runoff from runoff_resolutions");
+      await client2.query("commit");
+      expect(depois.rows).toHaveLength(1);
+      expect(depois.rows[0].candidate_id).toBe(base.ana);
+      expect(depois.rows[0].votes_in_runoff).toBe(3);
+    } finally {
+      client2.release();
+    }
+  });
+});
+
 describe("permissões das funções novas", () => {
   async function callAs(role: string, sql: string, params: unknown[] = []) {
     const client = await pool.connect();

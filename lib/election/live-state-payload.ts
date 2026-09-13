@@ -12,6 +12,12 @@ export type LiveState = {
   /** Hora do servidor. DISPLAY ONLY: nada autoriza voto por hora do cliente. */
   serverTime: string;
   votingOpen: boolean;
+  /**
+   * Eleição efetivamente aberta (geral ou desempate), ou null. A home usa
+   * só para saber que existe urna — o acesso continua autorizado no
+   * servidor a cada passo.
+   */
+  activeElectionId: string | null;
 };
 
 export function isElectionStatus(value: unknown): value is ElectionStatus {
@@ -30,6 +36,7 @@ export function isLiveState(value: unknown): value is LiveState {
     isElectionStatus(candidate.status) &&
     (candidate.participation === null || typeof candidate.participation === "number") &&
     typeof candidate.serverTime === "string" &&
-    typeof candidate.votingOpen === "boolean"
+    typeof candidate.votingOpen === "boolean" &&
+    (candidate.activeElectionId === null || typeof candidate.activeElectionId === "string")
   );
 }

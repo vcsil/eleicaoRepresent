@@ -76,6 +76,7 @@ Nunca use o prefixo `NEXT_PUBLIC_` em nenhuma das variáveis marcadas "Não".
    supabase/migrations/0012_dashboard_and_live_state.sql
    supabase/migrations/0013_runoff_multi_position_schema.sql
    supabase/migrations/0014_runoff_functions.sql
+   supabase/migrations/0015_live_state_follows_active_election.sql
    ```
 4. Rode `supabase/seed.sql` para cadastrar a eleição principal, os 6 cargos
    (13 vagas) e o cronograma oficial (seção 7 do documento técnico) — os
@@ -227,6 +228,25 @@ desempate). Os `votes_count` da eleição original **não são alterados** —
 os dois pleitos são registros distintos. Ser transacional é o que impede
 o estado que existia antes: desempate publicado e pai travado em
 `TIE_PENDING` para sempre.
+
+**Como o eleitor chega à urna do desempate.** `/votar` não resolve mais
+"a eleição geral", e sim a votação efetivamente aberta
+(`get_current_voting_election`). A urna e a revisão, por sua vez, usam a
+eleição da **sessão** do eleitor, não a que estiver aberta no momento: se
+a votação virasse entre a validação e o envio, a pessoa veria uma cédula
+que sua sessão não autoriza. Na urna do desempate aparecem apenas os
+cargos em disputa, os candidatos empatados e a opção Nulo.
+
+**O que a home mostra.** Havendo votação aberta — geral ou desempate —,
+`get_live_election_state` devolve o estado *dela*, e a home exibe
+"Votação de desempate em andamento" com o botão apontando para a urna.
+Antes ficava em "Desempate necessário", verdade sobre a eleição principal
+e inútil para quem precisava votar.
+
+**O que o resultado público mostra.** Quem foi eleito por desempate
+aparece com o selo "Eleito por desempate", e a votação de desempate é
+exibida como um bloco próprio, abaixo da votação original — as duas
+rodadas lado a lado, cada uma com seus números.
 
 **Se o desempate empatar de novo.** Nada é decidido automaticamente: a
 pendência permanece, `publish_results` recusa, e o administrador cria uma

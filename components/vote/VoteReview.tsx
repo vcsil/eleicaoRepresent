@@ -38,11 +38,14 @@ export function VoteReview({
   positions,
   candidatesByPosition,
   draftKey,
+  isRunoff = false,
 }: {
   positions: WizardPosition[];
   candidatesByPosition: Record<string, WizardCandidate[]>;
   /** Chave do rascunho, derivada da sessão de voto pelo servidor. */
   draftKey: string;
+  /** Votação de desempate. */
+  isRunoff?: boolean;
 }) {
   const router = useRouter();
   const getDraftSnapshot = useMemo(() => makeDraftSnapshotGetter(draftKey), [draftKey]);
@@ -98,7 +101,9 @@ export function VoteReview({
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold text-foreground">Revise seus votos</h1>
+      <h1 className="text-2xl font-semibold text-foreground">
+        {isRunoff ? "Revise seu voto de desempate" : "Revise seus votos"}
+      </h1>
       <p className="mt-2 text-sm text-foreground-muted">
         Confira a distribuição antes de confirmar. Você pode alterar qualquer cargo antes do envio
         definitivo.

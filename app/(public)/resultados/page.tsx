@@ -2,7 +2,11 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import { getMainElection, getElectionStatus } from "@/lib/election/status";
 import { getActivePositions } from "@/lib/election/positions";
-import { getPublishedResults, type ResultSnapshotRow } from "@/lib/election/results";
+import {
+  getPublishedResults,
+  getRunoffRounds,
+  type ResultSnapshotRow,
+} from "@/lib/election/results";
 import { candidatePhotoUrl } from "@/lib/media/candidate-photo";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -47,10 +51,21 @@ export default async function ResultadosPage() {
     );
   }
 
-  const [positions, results] = await Promise.all([
+  const [positions, results, runoffRounds] = await Promise.all([
     getActivePositions(),
     getPublishedResults(election.id),
+    getRunoffRounds(election.id),
   ]);
+
+  const roundsByPosition = new Map<string, (typeof runoffRounds)[number][]>();
+  for (const round of runoffRounds) {
+    const list = roundsByPosition.get(round.positionId) ?? [];
+    list.push(round);
+    roundsByPosition.set(round.positionId, list);
+  }
+  const wonByRunoff = new Set(
+    runoffRounds.flatMap((round) => round.winnerCandidateIds.map((id) => `${round.positionId}:${id}`)),
+  );
 
   const byPosition = new Map<string, ResultSnapshotRow[]>();
   for (const row of results) {
@@ -114,7 +129,13 @@ export default async function ResultadosPage() {
                         <span className="text-sm font-semibold tabular-nums text-foreground">
                           {row.votes_count} {row.votes_count === 1 ? "voto" : "votos"}
                         </span>
-                        {row.elected && <Badge tone="success">Eleito</Badge>}
+                        {row.elected && (
+                          <Badge tone="success">
+                            {wonByRunoff.has(`${position.id}:${row.candidate_id}`)
+                              ? "Eleito por desempate"
+                              : "Eleito"}
+                          </Badge>
+                        )}
                       </div>
                     </div>
                   );
@@ -128,6 +149,44 @@ export default async function ResultadosPage() {
                   </div>
                 )}
               </Card>
+
+              {/* Segunda rodada: a votação da eleição principal fica acima,
+                  intacta, e o desempate aparece como registro próprio. */}
+              {(roundsByPosition.get(position.id) ?? []).map((round) => (
+                <div key={round.runoffElectionId} className="mt-3">
+                  <h3 className="mb-2 text-sm font-medium text-foreground-muted">
+                    Votação de desempate
+                  </h3>
+                  <Card className="divide-y divide-border">
+                    {round.rows
+                      .filter((r) => r.candidate_id !== null)
+                      .map((r) => (
+                        <div
+                          key={r.candidate_id}
+                          className="flex items-center justify-between gap-3 p-3.5 text-sm"
+                        >
+                          <span className="truncate text-foreground">{r.candidate_name}</span>
+                          <span className="shrink-0 font-semibold tabular-nums text-foreground">
+                            {r.votes_count} {r.votes_count === 1 ? "voto" : "votos"}
+                          </span>
+                        </div>
+                      ))}
+                    {round.rows
+                      .filter((r) => r.candidate_id === null)
+                      .map((r) => (
+                        <div
+                          key="nulos"
+                          className="flex items-center justify-between p-3.5 text-sm text-foreground-muted"
+                        >
+                          <span>Votos nulos</span>
+                          <span className="font-medium tabular-nums text-foreground">
+                            {r.votes_count}
+                          </span>
+                        </div>
+                      ))}
+                  </Card>
+                </div>
+              ))}
             </section>
           );
         })}

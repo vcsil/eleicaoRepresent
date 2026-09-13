@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { voterValidationSchema } from "@/lib/validation/schemas";
 import { createServiceClient } from "@/lib/supabase/service";
-import { getMainElection } from "@/lib/election/status";
+import { getCurrentVotingElection } from "@/lib/election/active-election";
 import {
   clearVoteConfirmedCookie,
   setVoteSessionCookie,
@@ -60,14 +60,16 @@ export async function validateVoterAction(
     return { error: "Muitas tentativas. Aguarde alguns minutos antes de tentar novamente." };
   }
 
-  const election = await getMainElection();
-  if (!election) {
-    return { error: GENERIC_ERROR };
+  // Valida contra a eleição EFETIVAMENTE aberta — geral ou desempate.
+  // Antes era sempre a geral, e por isso nenhum desempate era votável.
+  const active = await getCurrentVotingElection();
+  if (!active) {
+    return { error: "A votação não está aberta no momento." };
   }
 
   const supabase = createServiceClient();
   const { data, error } = await supabase.rpc("validate_voter", {
-    p_election_id: election.id,
+    p_election_id: active.electionId,
     p_registration_number: parsed.data.registration_number,
     p_full_name: parsed.data.full_name,
     p_ip_hash: ipHash,

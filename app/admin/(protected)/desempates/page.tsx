@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
 import { getMainElection } from "@/lib/election/status";
-import { getPendingTies, getPendingDualWinnerDecisions, getRunoffs } from "@/lib/admin/runoffs";
+import {
+  getPendingTies,
+  getPendingDualWinnerDecisions,
+  getRunoffs,
+  RUNOFF_STAGE_LABELS,
+  type RunoffStage,
+} from "@/lib/admin/runoffs";
 import { DualWinnerDecisionCard } from "@/components/admin/DualWinnerDecisionCard";
 import { CreateRunoffForm } from "@/components/admin/CreateRunoffForm";
 import { Card } from "@/components/ui/Card";
@@ -9,6 +15,15 @@ import { EmptyState } from "@/components/feedback/EmptyState";
 
 export const metadata: Metadata = { title: "Desempates — Administração" };
 export const dynamic = "force-dynamic";
+
+const STAGE_TONE: Record<RunoffStage, "neutral" | "success" | "warning" | "info"> = {
+  agendado: "neutral",
+  votacao_aberta: "success",
+  aguardando_apuracao: "info",
+  apurado: "warning",
+  novo_empate: "warning",
+  concluido: "success",
+};
 
 export default async function AdminDesempatesPage() {
   const election = await getMainElection();
@@ -63,15 +78,30 @@ export default async function AdminDesempatesPage() {
         ) : (
           <div className="mt-3 space-y-2">
             {runoffs.map((r) => (
-              <Card key={r.id} className="flex items-center justify-between gap-3 p-3 text-sm">
-                <span className="text-foreground">{r.name}</span>
-                <Badge tone={r.results_published_at ? "success" : r.results_computed_at ? "warning" : "info"}>
-                  {r.results_published_at
-                    ? "Publicado"
-                    : r.results_computed_at
-                      ? "Apurado"
-                      : "Em andamento"}
-                </Badge>
+              <Card key={r.id} className="p-3 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-foreground">{r.name}</p>
+                    {r.positions.length > 0 && (
+                      <p className="mt-0.5 text-xs text-foreground-muted">
+                        {r.positions.length === 1 ? "Cargo" : "Cargos"}: {r.positions.join(", ")}
+                      </p>
+                    )}
+                  </div>
+                  <Badge tone={STAGE_TONE[r.stage]}>{RUNOFF_STAGE_LABELS[r.stage]}</Badge>
+                </div>
+                {r.stage === "novo_empate" && (
+                  <p className="mt-2 text-xs text-warning">
+                    A votação de desempate terminou empatada. Nada é decidido automaticamente —
+                    é preciso criar uma nova rodada para este cargo.
+                  </p>
+                )}
+                {r.stage === "apurado" && (
+                  <p className="mt-2 text-xs text-foreground-muted">
+                    Publique esta votação em /admin/resultados: é isso que resolve o empate da
+                    eleição principal e libera a publicação dela.
+                  </p>
+                )}
               </Card>
             ))}
           </div>
