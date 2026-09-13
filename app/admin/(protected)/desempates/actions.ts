@@ -40,13 +40,12 @@ export async function createRunoffAction(
   formData: FormData,
 ): Promise<ActionState> {
   const parentElectionId = formData.get("parent_election_id");
-  const candidateIds = formData.getAll("candidate_ids").filter((v): v is string => typeof v === "string");
+  const positionIds = formData
+    .getAll("position_ids")
+    .filter((v): v is string => typeof v === "string");
 
   const parsed = runoffCreateSchema.safeParse({
-    position_id: formData.get("position_id"),
-    candidate_ids: candidateIds,
-    votes_per_voter: Number(formData.get("votes_per_voter")),
-    vacancies: Number(formData.get("vacancies")),
+    position_ids: positionIds,
     reason: formData.get("reason"),
     starts_on: formData.get("starts_on"),
     ends_on: formData.get("ends_on"),
@@ -61,10 +60,7 @@ export async function createRunoffAction(
   const supabase = createServiceClient();
   const { data, error } = await supabase.rpc("create_runoff_election", {
     p_parent_election_id: parentElectionId,
-    p_position_id: parsed.data.position_id,
-    p_candidate_ids: parsed.data.candidate_ids,
-    p_votes_per_voter: parsed.data.votes_per_voter,
-    p_vacancies: parsed.data.vacancies,
+    p_position_ids: parsed.data.position_ids,
     p_reason: parsed.data.reason,
     p_starts_on: parsed.data.starts_on,
     p_ends_on: parsed.data.ends_on,
@@ -72,11 +68,24 @@ export async function createRunoffAction(
     p_end_time: parsed.data.end_time,
   });
 
-  if (error) return { error: "Não foi possível criar a votação de desempate." };
+  if (error) {
+    const code = error.message.trim();
+    if (code === "RUNOFF_ALREADY_EXISTS") {
+      return { error: "Já existe uma votação de desempate em aberto para este cargo." };
+    }
+    if (code === "NO_TIE_FOR_POSITION") {
+      return { error: "Este cargo não tem empate pendente." };
+    }
+    return { error: "Não foi possível criar a votação de desempate." };
+  }
 
   await logAdminAction("RUNOFF_CREATED", { runoffId: data, ...parsed.data });
   // Um desempate pendente muda o status público da eleição principal.
   updateTag(CACHE_TAGS.publicElection);
+  // O desempate cria uma votação nova, com fase e urna próprias.
+  updateTag(CACHE_TAGS.electionPhases);
+  updateTag(CACHE_TAGS.ballotOptions);
   revalidatePath("/admin/desempates");
+  revalidatePath("/");
   return { error: null };
 }

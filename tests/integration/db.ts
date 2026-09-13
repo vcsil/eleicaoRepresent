@@ -19,6 +19,7 @@ export async function resetDatabase(): Promise<void> {
       result_snapshots, position_dual_winner_decisions, seat_reassignments,
       runoff_candidates, result_publications,
       candidate_positions, candidates, voters,
+      runoff_positions, runoff_resolutions,
       election_phases, elections, positions,
       rate_limit_counters, security_events
     cascade
@@ -129,4 +130,32 @@ export async function castBallot(token: string, payload: unknown): Promise<strin
 
 export async function closeVoting(electionId: string): Promise<void> {
   await pool.query(`update elections set voting_closed_manually_at = now() where id = $1`, [electionId]);
+}
+
+/** Valida o eleitor e envia a cédula, em qualquer eleição (geral ou desempate). */
+export async function voteAs(
+  electionId: string,
+  registrationNumber: string,
+  fullName: string,
+  payload: unknown,
+): Promise<void> {
+  const session = await validateVoter(electionId, registrationNumber, fullName);
+  if (session.status !== "ok" || !session.token) {
+    throw new Error(`validate_voter retornou ${session.status}`);
+  }
+  await castBallot(session.token, payload);
+}
+
+/** Cédula de um cargo com um único candidato (ou nulo). */
+export function singleChoice(positionId: string, candidateId: string | null, quantity = 1) {
+  return {
+    positions: [
+      {
+        position_id: positionId,
+        allocations: [
+          { candidate_id: candidateId, is_null_vote: candidateId === null, quantity },
+        ],
+      },
+    ],
+  };
 }

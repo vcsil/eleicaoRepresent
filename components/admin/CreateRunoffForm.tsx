@@ -23,10 +23,7 @@ export function CreateRunoffForm({ tie, electionId }: { tie: PendingTie; electio
 
       <form action={formAction} className="mt-4 space-y-3">
         <input type="hidden" name="parent_election_id" value={electionId} />
-        <input type="hidden" name="position_id" value={tie.position_id} />
-        {tie.candidates.map((c) => (
-          <input key={c.id} type="hidden" name="candidate_ids" value={c.id} />
-        ))}
+        <input type="hidden" name="position_ids" value={tie.position_id} />
 
         <div>
           <label className="text-xs font-medium text-foreground-muted">Motivo</label>
@@ -39,23 +36,10 @@ export function CreateRunoffForm({ tie, electionId }: { tie: PendingTie; electio
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs font-medium text-foreground-muted">Vagas em disputa</label>
-            <input type="number" name="vacancies" min={1} defaultValue={1} required className={inputClass} />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-foreground-muted">Votos por eleitor</label>
-            <input
-              type="number"
-              name="votes_per_voter"
-              min={1}
-              defaultValue={1}
-              required
-              className={inputClass}
-            />
-          </div>
-        </div>
+        <p className="rounded-md bg-surface-muted px-3 py-2 text-xs text-foreground-muted">
+          Os candidatos em disputa e o número de vagas são determinados pela apuração — não
+          precisam ser informados aqui.
+        </p>
 
         <div className="grid grid-cols-2 gap-3">
           <div>
