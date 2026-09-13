@@ -8,6 +8,9 @@ Arquitetura completa, schema do banco e o racional de cada decisão de
 segurança estão documentados em **[`docs/TECHNICAL_DESIGN.md`](docs/TECHNICAL_DESIGN.md)** —
 leia esse arquivo para entender o "porquê" das escolhas abaixo.
 
+Estratégia de cache, invalidação por tag e as medições de performance
+estão em **[`docs/PERFORMANCE_V2.md`](docs/PERFORMANCE_V2.md)**.
+
 ## Stack
 
 - Next.js 16 (App Router) + TypeScript + React 19
@@ -70,6 +73,7 @@ Nunca use o prefixo `NEXT_PUBLIC_` em nenhuma das variáveis marcadas "Não".
    supabase/migrations/0009_analytics.sql
    supabase/migrations/0010_fix_service_role_grants.sql
    supabase/migrations/0011_grant_service_role_tables.sql
+   supabase/migrations/0012_dashboard_and_live_state.sql
    ```
 4. Rode `supabase/seed.sql` para cadastrar a eleição principal, os 6 cargos
    (13 vagas) e o cronograma oficial (seção 7 do documento técnico) — os
@@ -101,6 +105,14 @@ migration `0007_storage.sql`.
 > direto (`.from(tabela)`, fora das funções `SECURITY DEFINER`) estava
 > quebrado. Rode `supabase/migrations/0011_grant_service_role_tables.sql`
 > no projeto existente.
+>
+> **Já aplicou até a 0011?** A `0012_dashboard_and_live_state.sql` só
+> adiciona duas funções de leitura consolidada
+> (`get_admin_dashboard_metrics`, usada pelo painel, e
+> `get_live_election_state`, usada pela home durante a votação). Não altera
+> nenhuma tabela nem nenhuma função existente; aplicar é seguro a qualquer
+> momento. **Antes de aplicar**, o painel e a home falham com "permission
+> denied for function ..." — as duas passaram a depender dela.
 
 ## Desenvolvimento
 
@@ -188,6 +200,11 @@ Administrativas (autenticação por senha única, sessão HttpOnly):
 
 ## Limitações conhecidas / próximos passos
 
+- Cargos, candidatos e cronograma são servidos do Data Cache e só são
+  invalidados por ações do painel. **Se você alterar esses dados direto no
+  banco** (SQL Editor do Supabase, `psql`), clique em "Atualizar dados do
+  site" em `/admin/dashboard` — senão o site continua mostrando o valor
+  antigo. Detalhes em [`docs/PERFORMANCE_V2.md`](docs/PERFORMANCE_V2.md).
 - Autenticação administrativa por senha única está desenhada para migrar
   no futuro para Supabase Auth com contas individuais (seção 62 do
   documento técnico) — não implementado nesta fase, por decisão explícita.

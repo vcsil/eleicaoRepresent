@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { updatePhaseAction, type ScheduleFormState } from "@/app/admin/(protected)/cronograma/actions";
-import type { ElectionPhase } from "@/lib/election/phases";
+import type { ElectionPhase } from "@/lib/election/phase-bounds";
 
 const initialState: ScheduleFormState = { error: null };
 

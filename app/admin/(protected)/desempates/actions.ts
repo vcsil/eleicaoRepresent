@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
+import { CACHE_TAGS } from "@/lib/cache/tags";
 import { dualWinnerDecisionSchema, runoffCreateSchema } from "@/lib/validation/schemas";
 import { createServiceClient } from "@/lib/supabase/service";
 import { logAdminAction } from "@/lib/admin/audit-log";
@@ -26,6 +27,9 @@ export async function resolveDualWinnerAction(
   if (error) return { error: "Não foi possível registrar a decisão." };
 
   await logAdminAction("DUAL_WINNER_RESOLVED", parsed.data);
+  // Resolver cargo duplo promove o próximo colocado: a composição
+  // publicada muda.
+  updateTag(CACHE_TAGS.publishedResults);
   revalidatePath("/admin/desempates");
   revalidatePath("/admin/resultados");
   return { error: null };
@@ -71,6 +75,8 @@ export async function createRunoffAction(
   if (error) return { error: "Não foi possível criar a votação de desempate." };
 
   await logAdminAction("RUNOFF_CREATED", { runoffId: data, ...parsed.data });
+  // Um desempate pendente muda o status público da eleição principal.
+  updateTag(CACHE_TAGS.publicElection);
   revalidatePath("/admin/desempates");
   return { error: null };
 }

@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { getMainElection, getElectionStatus } from "@/lib/election/status";
+import { getMainElection } from "@/lib/election/status";
 import { ELECTION_STATUS_LABELS } from "@/lib/election/status";
-import { getParticipationPercentage } from "@/lib/election/participation";
 import { getDashboardMetrics } from "@/lib/admin/metrics";
 import { MetricCard } from "@/components/admin/MetricCard";
 import { EmptyState } from "@/components/feedback/EmptyState";
+import { InvalidateCacheButton } from "@/components/admin/InvalidateCacheButton";
 
 export const metadata: Metadata = { title: "Painel — Administração" };
 export const dynamic = "force-dynamic";
@@ -16,11 +16,10 @@ export default async function AdminDashboardPage() {
     return <EmptyState title="Nenhuma eleição cadastrada" />;
   }
 
-  const [status, participation, metrics] = await Promise.all([
-    getElectionStatus(election.id),
-    getParticipationPercentage(election.id),
-    getDashboardMetrics(election.id),
-  ]);
+  // Um round trip: status, participação e todas as contagens vêm juntos de
+  // get_admin_dashboard_metrics. Antes eram 3 chamadas (e, dentro da de
+  // métricas, outras 7 em paralelo).
+  const metrics = await getDashboardMetrics(election.id);
 
   return (
     <div>
@@ -28,9 +27,9 @@ export default async function AdminDashboardPage() {
       <p className="mt-1 text-sm text-foreground-muted">{election.name}</p>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricCard label="Status da eleição" value={ELECTION_STATUS_LABELS[status]} />
+        <MetricCard label="Status da eleição" value={ELECTION_STATUS_LABELS[metrics.status]} />
         <MetricCard label="Eleitores habilitados" value={metrics.totalVoters} />
-        <MetricCard label="Participação" value={`${participation.toFixed(1)}%`} />
+        <MetricCard label="Participação" value={`${metrics.participation.toFixed(1)}%`} />
         <MetricCard label="Candidatos ativos" value={metrics.totalCandidates} />
         <MetricCard label="Acessos ao site" value={metrics.totalSiteViews} />
         <MetricCard label="Tentativas inválidas de validação" value={metrics.invalidAttempts} />
@@ -59,6 +58,13 @@ export default async function AdminDashboardPage() {
           }
         />
       </div>
+
+      <section className="mt-10 border-t border-border pt-6">
+        <h2 className="text-lg font-semibold text-foreground">Cache do site</h2>
+        <div className="mt-3">
+          <InvalidateCacheButton />
+        </div>
+      </section>
     </div>
   );
 }

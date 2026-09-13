@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/Badge";
-import { ELECTION_STATUS_LABELS, type ElectionStatus } from "@/lib/election/status";
+import { ELECTION_STATUS_LABELS, type ElectionStatus } from "@/lib/election/status-values";
 
 const TONE_BY_STATUS: Record<ElectionStatus, "neutral" | "success" | "warning" | "info" | "accent"> = {
   nao_iniciada: "neutral",

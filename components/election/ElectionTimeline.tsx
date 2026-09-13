@@ -1,4 +1,4 @@
-import { getPhaseTimelineState, type ElectionPhase } from "@/lib/election/phases";
+import { getPhaseTimelineState, type ElectionPhase } from "@/lib/election/phase-bounds";
 
 function formatDateRange(phase: ElectionPhase): string {
   const fmt = (iso: string) =>
