@@ -11,7 +11,26 @@ import {
 import { Button } from "@/components/ui/Button";
 
 const CHANNEL_NAME = "admin-session-state";
-const ACTIVITY_EVENTS: (keyof WindowEventMap)[] = ["pointerdown", "keydown", "touchstart"];
+
+/**
+ * Rolagem conta como atividade: um administrador lendo uma página longa de
+ * resultados com a roda do mouse estava sendo deslogado, porque só clique,
+ * tecla e toque contavam.
+ *
+ * `wheel`, `scroll` e `touchmove` disparam dezenas de vezes por segundo —
+ * daí o throttle em `registerActivity`, sem o qual cada quadro de rolagem
+ * postaria uma mensagem no BroadcastChannel.
+ */
+const ACTIVITY_EVENTS: (keyof WindowEventMap)[] = [
+  "pointerdown",
+  "keydown",
+  "touchstart",
+  "touchmove",
+  "wheel",
+  "scroll",
+];
+
+const ACTIVITY_THROTTLE_MS = 1000;
 
 export function AdminIdleSessionProvider({
   children,
@@ -24,7 +43,10 @@ export function AdminIdleSessionProvider({
   const pathname = usePathname();
   const [warning, setWarning] = useState(false);
   const expiresAtRef = useRef(new Date(initialExpiresAt).getTime());
-  const lastHumanActivityRef = useRef(Date.now());
+  // Inicializa com 0 e preenche na montagem: `Date.now()` no corpo do
+  // componente é chamada impura durante o render (react-hooks/purity), e é
+  // reavaliada a cada render só para ter o valor descartado.
+  const lastHumanActivityRef = useRef(0);
   const lastHeartbeatRef = useRef(0);
   const heartbeatPendingRef = useRef(false);
   const initialPathnameRef = useRef(true);
@@ -61,13 +83,20 @@ export function AdminIdleSessionProvider({
   }, [expire]);
 
   const registerActivity = useCallback(() => {
-    lastHumanActivityRef.current = Date.now();
+    const now = Date.now();
+    // Throttle: eventos contínuos (rolagem) não precisam avançar o relógio
+    // mais de uma vez por segundo.
+    if (now - lastHumanActivityRef.current < ACTIVITY_THROTTLE_MS) return;
+    lastHumanActivityRef.current = now;
     setWarning(false);
-    channelRef.current?.postMessage({ type: "activity", at: lastHumanActivityRef.current });
+    channelRef.current?.postMessage({ type: "activity", at: now });
     void heartbeat();
   }, [heartbeat]);
 
   useEffect(() => {
+    // O relógio de inatividade começa na montagem — não durante o render.
+    if (lastHumanActivityRef.current === 0) lastHumanActivityRef.current = Date.now();
+
     const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(CHANNEL_NAME);
     channelRef.current = channel;
     if (channel) {

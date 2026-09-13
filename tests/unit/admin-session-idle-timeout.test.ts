@@ -9,8 +9,12 @@ import {
 const read = (path: string) => readFileSync(path, "utf8");
 
 describe("arquitetura do timeout administrativo", () => {
-  it("centraliza a janela de cinco minutos, aviso e throttle", () => {
-    expect(ADMIN_IDLE_TIMEOUT_SECONDS).toBe(300);
+  it("centraliza a janela de dez minutos, aviso e throttle", () => {
+    // Tripwire deliberado: mudar a janela exige mudar este número E escrever a
+    // migration correspondente. O teste de integração
+    // admin-session-idle-timeout compara esta constante com o intervalo que o
+    // banco de fato concede, então os dois lados nunca divergem em silêncio.
+    expect(ADMIN_IDLE_TIMEOUT_SECONDS).toBe(600);
     expect(ADMIN_SESSION_WARNING_SECONDS).toBe(60);
     expect(ADMIN_ACTIVITY_HEARTBEAT_SECONDS).toBeGreaterThanOrEqual(30);
     expect(ADMIN_ACTIVITY_HEARTBEAT_SECONDS).toBeLessThanOrEqual(60);
@@ -25,12 +29,36 @@ describe("arquitetura do timeout administrativo", () => {
     expect(source).toContain("sha256Hex(token)");
   });
 
-  it("não transforma polling ou eventos contínuos em atividade", () => {
+  it("conta rolagem como atividade, mas não movimento de mouse nem polling", () => {
     const source = read("components/admin/AdminIdleSessionProvider.tsx");
+    // Mover o mouse sobre a tela não é intenção de uso: continua fora.
     expect(source).not.toContain('"mousemove"');
-    expect(source).not.toContain('"scroll"');
-    expect(source).toContain('"pointerdown", "keydown", "touchstart"');
+    // Rolagem (roda, barra e toque) passou a contar — um administrador lendo
+    // uma página longa de resultados estava sendo deslogado enquanto lia.
+    for (const event of ['"pointerdown"', '"keydown"', '"touchstart"', '"touchmove"', '"wheel"', '"scroll"']) {
+      expect(source, event).toContain(event);
+    }
+    // Sem throttle, cada quadro de rolagem viraria uma mensagem no
+    // BroadcastChannel e um heartbeat — é ele que impede que eventos
+    // contínuos virem enxurrada de renovação.
+    expect(source).toContain("ACTIVITY_THROTTLE_MS");
     expect(source).toContain("ADMIN_ACTIVITY_HEARTBEAT_SECONDS");
+  });
+
+  it("não deixa rolagem programática renovar a sessão administrativa", () => {
+    // A única rolagem programática do projeto está no fluxo público de voto
+    // (BallotWizard), onde o provider administrativo não é montado. Se algum
+    // dia entrar um scroll automático dentro de /admin, a sessão passaria a se
+    // renovar sozinha para sempre — e este teste quebra antes disso.
+    const adminSources = [
+      "components/admin/AdminIdleSessionProvider.tsx",
+      "app/admin/(protected)/layout.tsx",
+    ];
+    for (const file of adminSources) {
+      const source = read(file);
+      expect(source, file).not.toContain("scrollIntoView");
+      expect(source, file).not.toContain("window.scrollTo");
+    }
   });
 
   it("instala o controle somente no layout admin protegido", () => {
