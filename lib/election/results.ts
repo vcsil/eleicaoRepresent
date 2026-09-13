@@ -2,6 +2,7 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { createAnonClient } from "@/lib/supabase/server";
 import { CACHE_TAGS } from "@/lib/cache/tags";
+import { compareCandidateResults } from "@/lib/election/display-order";
 
 export type ResultSnapshotRow = {
   position_id: string;
@@ -31,11 +32,13 @@ async function fetchPublishedResults(electionId: string): Promise<ResultSnapshot
     .select(
       "position_id, position_name, candidate_id, candidate_name, candidate_photo_path, votes_count, rank, elected, seat_label",
     )
-    .eq("election_id", electionId)
-    .order("rank", { ascending: true, nullsFirst: false });
+    .eq("election_id", electionId);
 
   if (error) throw error;
-  return (data ?? []) as ResultSnapshotRow[];
+  const rows = (data ?? []) as ResultSnapshotRow[];
+  const candidates = rows.filter((row) => row.candidate_id !== null).sort(compareCandidateResults);
+  const nullVotes = rows.filter((row) => row.candidate_id === null);
+  return [...candidates, ...nullVotes];
 }
 
 /**
@@ -107,7 +110,11 @@ async function fetchRunoffRounds(parentElectionId: string): Promise<RunoffRound[
   }
 
   for (const round of rounds) {
-    round.rows.sort((a, b) => b.votes_count - a.votes_count);
+    const candidates = round.rows
+      .filter((row) => row.candidate_id !== null)
+      .sort(compareCandidateResults);
+    const nullVotes = round.rows.filter((row) => row.candidate_id === null);
+    round.rows = [...candidates, ...nullVotes];
   }
 
   return rounds;

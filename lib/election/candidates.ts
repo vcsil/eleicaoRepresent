@@ -2,6 +2,7 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { createAnonClient } from "@/lib/supabase/server";
 import { CACHE_TAGS } from "@/lib/cache/tags";
+import { compareCandidatesByName } from "@/lib/election/display-order";
 
 export type CandidateWithPositions = {
   id: string;
@@ -12,7 +13,7 @@ export type CandidateWithPositions = {
   proposals: string | null;
   video_url: string | null;
   display_order: number;
-  positions: { id: string; slug: string; name: string }[];
+  positions: { id: string; slug: string; name: string; display_order: number }[];
 };
 
 async function fetchActiveCandidates(): Promise<CandidateWithPositions[]> {
@@ -21,10 +22,9 @@ async function fetchActiveCandidates(): Promise<CandidateWithPositions[]> {
     .from("candidates")
     .select(
       `id, full_name, photo_path, tagline, presentation, proposals, video_url, display_order,
-       candidate_positions ( positions ( id, slug, name ) )`,
+       candidate_positions ( positions ( id, slug, name, display_order ) )`,
     )
-    .eq("active", true)
-    .order("display_order", { ascending: true });
+    .eq("active", true);
 
   if (error) throw error;
 
@@ -37,7 +37,9 @@ async function fetchActiveCandidates(): Promise<CandidateWithPositions[]> {
     proposals: string | null;
     video_url: string | null;
     display_order: number;
-    candidate_positions: { positions: { id: string; slug: string; name: string } | null }[] | null;
+    candidate_positions: {
+      positions: { id: string; slug: string; name: string; display_order: number } | null;
+    }[] | null;
   };
 
   return ((data ?? []) as unknown as Row[]).map((row) => ({
@@ -51,8 +53,11 @@ async function fetchActiveCandidates(): Promise<CandidateWithPositions[]> {
     display_order: row.display_order,
     positions: (row.candidate_positions ?? [])
       .map((cp) => cp.positions)
-      .filter((p): p is { id: string; slug: string; name: string } => Boolean(p)),
-  }));
+      .filter(
+        (p): p is { id: string; slug: string; name: string; display_order: number } => Boolean(p),
+      )
+      .sort((a, b) => a.display_order - b.display_order),
+  })).sort(compareCandidatesByName);
 }
 
 /**

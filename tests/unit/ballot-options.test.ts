@@ -22,6 +22,12 @@ vi.mock("@/lib/election/positions", () => ({
 vi.mock("@/lib/election/candidates", () => ({
   getActiveCandidates: async () => [
     {
+      id: "cand-bruno",
+      full_name: "Bruno",
+      photo_path: null,
+      positions: [{ id: "pos-presidente", slug: "p", name: "Presidente" }],
+    },
+    {
       id: "cand-ana",
       full_name: "Ana",
       photo_path: null,
@@ -59,7 +65,14 @@ describe("cédula da eleição geral", () => {
     const options = await getBallotOptions({ electionId: "e1", type: "general" });
 
     expect(options.positions.map((p) => p.name)).toEqual(["Presidente", "Tesouraria"]);
-    expect(options.candidatesByPosition["pos-presidente"].map((c) => c.full_name)).toEqual(["Ana"]);
+    expect(options.candidatesByPosition["pos-presidente"].map((c) => c.full_name)).toEqual([
+      "Ana",
+      "Bruno",
+    ]);
+    expect(options.candidatesByPosition["pos-presidente"].map((c) => c.id)).toEqual([
+      "cand-ana",
+      "cand-bruno",
+    ]);
     expect(options.candidatesByPosition["pos-tesouraria"].map((c) => c.full_name)).toEqual([
       "Carla",
     ]);
@@ -71,6 +84,11 @@ describe("cédula do desempate", () => {
     stubTables({
       runoff_positions: [
         {
+          position_id: "pos-tesouraria",
+          votes_per_voter: 1,
+          positions: { name: "Tesouraria", display_order: 3 },
+        },
+        {
           position_id: "pos-presidente",
           votes_per_voter: 1,
           positions: { name: "Presidente", display_order: 1 },
@@ -79,11 +97,11 @@ describe("cédula do desempate", () => {
       runoff_candidates: [
         {
           position_id: "pos-presidente",
-          candidates: { id: "cand-ana", full_name: "Ana", photo_path: null, display_order: 1 },
+          candidates: { id: "cand-bruno", full_name: "Bruno", photo_path: null, display_order: 1 },
         },
         {
           position_id: "pos-presidente",
-          candidates: { id: "cand-bruno", full_name: "Bruno", photo_path: null, display_order: 2 },
+          candidates: { id: "cand-ana", full_name: "Ana", photo_path: null, display_order: 2 },
         },
       ],
     });
@@ -92,10 +110,9 @@ describe("cédula do desempate", () => {
   it("traz SOMENTE o cargo em disputa", async () => {
     const options = await getBallotOptions({ electionId: "r1", type: "runoff" });
 
-    expect(options.positions).toHaveLength(1);
+    expect(options.positions).toHaveLength(2);
     expect(options.positions[0]).toMatchObject({ id: "pos-presidente", name: "Presidente" });
-    // Tesouraria existe na eleição geral e não pode vazar para cá.
-    expect(options.candidatesByPosition["pos-tesouraria"]).toBeUndefined();
+    expect(options.positions[1]).toMatchObject({ id: "pos-tesouraria", name: "Tesouraria" });
   });
 
   it("traz SOMENTE os candidatos empatados", async () => {
@@ -105,7 +122,7 @@ describe("cédula do desempate", () => {
       "Ana",
       "Bruno",
     ]);
-    // Carla é candidata ativa da eleição geral, mas não deste empate.
+    // Carla é candidata ativa da eleição geral, mas não deste desempate.
     expect(
       options.candidatesByPosition["pos-presidente"].some((c) => c.full_name === "Carla"),
     ).toBe(false);

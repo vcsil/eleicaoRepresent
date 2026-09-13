@@ -89,8 +89,7 @@ export default async function ResultadosPage() {
         {positions.map((position) => {
           const rows = byPosition.get(position.id) ?? [];
           const candidates = rows
-            .filter((r) => r.candidate_id !== null)
-            .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999));
+            .filter((r) => r.candidate_id !== null);
           const nullRow = rows.find((r) => r.candidate_id === null);
 
           if (rows.length === 0) return null;

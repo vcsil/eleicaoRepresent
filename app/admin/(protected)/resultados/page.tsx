@@ -67,13 +67,13 @@ export default async function AdminResultadosPage() {
           <section key={positionId}>
             <h2 className="mb-2 font-semibold text-foreground">{rows[0]?.position_name}</h2>
             <Card className="divide-y divide-border">
-              {rows.map((row) => (
+              {rows.filter((row) => row.candidate_id !== null).map((row) => (
                 <div
                   key={row.candidate_id ?? "null"}
                   className="flex items-center justify-between gap-3 p-3 text-sm"
                 >
                   <span className="text-foreground">
-                    {row.candidate_id ? `${row.rank}º ${row.candidate_name}` : "Votos nulos"}
+                    {`${row.rank}º ${row.candidate_name}`}
                     {row.seat_label && (
                       <span className="ml-2 text-xs text-foreground-muted">({row.seat_label})</span>
                     )}
@@ -83,6 +83,15 @@ export default async function AdminResultadosPage() {
                     {row.elected && <Badge tone="success">Eleito</Badge>}
                     {row.tie_break_needed && <Badge tone="warning">Empate</Badge>}
                   </span>
+                </div>
+              ))}
+              {rows.filter((row) => row.candidate_id === null).map((row) => (
+                <div
+                  key="null"
+                  className="flex items-center justify-between gap-3 p-3 text-sm text-foreground-muted"
+                >
+                  <span>Votos nulos</span>
+                  <span className="tabular-nums">{row.votes_count} votos</span>
                 </div>
               ))}
             </Card>
