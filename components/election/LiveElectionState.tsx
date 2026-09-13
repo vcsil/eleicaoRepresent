@@ -141,10 +141,12 @@ export function LiveStatusBadge() {
  * botão até recarregar.
  */
 export function LiveVoteCta() {
-  if (!useLiveState().votingOpen) return null;
+  const state = useLiveState();
+  if (!state.votingOpen) return null;
+  const isRunoff = state.status === "votacao_desempate";
   return (
     <Button href="/votar" variant="secondary" size="lg" className="border-success text-success">
-      Votar agora
+      {isRunoff ? "Votar no desempate" : "Votar agora"}
     </Button>
   );
 }

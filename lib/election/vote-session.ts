@@ -1,6 +1,7 @@
 import "server-only";
 import { cookies } from "next/headers";
-import { hashKey } from "@/lib/security/hashing";
+import { hashKey, sha256Hex } from "@/lib/security/hashing";
+import { createServiceClient } from "@/lib/supabase/service";
 
 export const VOTE_SESSION_COOKIE = "vote_session";
 export const VOTE_SESSION_TTL_SECONDS = 60 * 20; // 20 minutos para concluir a urna
@@ -86,4 +87,42 @@ export async function hasVoteConfirmedCookie(): Promise<boolean> {
 export async function clearVoteConfirmedCookie(): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.delete(VOTE_CONFIRMED_COOKIE);
+}
+
+export type VoteSessionElection = {
+  electionId: string;
+  type: "general" | "runoff";
+};
+
+/**
+ * A qual eleição a sessão de voto pertence.
+ *
+ * A urna precisa disso — e não pode simplesmente perguntar "qual eleição
+ * está aberta agora": se a votação virasse entre a validação e o envio, a
+ * tela mostraria uma cédula diferente da que a sessão autoriza. O vínculo
+ * correto é o da própria sessão.
+ *
+ * O token nunca é guardado em claro no banco: a busca é pelo mesmo hash
+ * que `cast_ballot` calcula. Sessão expirada ou já consumida não resolve
+ * para eleição nenhuma.
+ */
+export async function getVoteSessionElection(token: string): Promise<VoteSessionElection | null> {
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("vote_sessions")
+    .select("election_id, expires_at, consumed_at, elections ( type )")
+    .eq("token_hash", sha256Hex(token))
+    .maybeSingle();
+
+  if (error) {
+    console.error("getVoteSessionElection failed", error);
+    return null;
+  }
+  if (!data || data.consumed_at !== null) return null;
+  if (new Date(data.expires_at).getTime() <= Date.now()) return null;
+
+  const type = (data as unknown as { elections: { type: string } | null }).elections?.type;
+  if (type !== "general" && type !== "runoff") return null;
+
+  return { electionId: data.election_id as string, type };
 }

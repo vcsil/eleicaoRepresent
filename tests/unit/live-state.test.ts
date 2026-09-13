@@ -26,6 +26,7 @@ describe("getLiveElectionState", () => {
         status: "votacao_em_andamento",
         participation: 42.5,
         server_time: "2026-09-19T11:00:00+00:00",
+        active_election_id: "99999999-9999-4999-8999-999999999999",
       },
       error: null,
     });
@@ -37,6 +38,7 @@ describe("getLiveElectionState", () => {
       participation: 42.5,
       serverTime: "2026-09-19T11:00:00+00:00",
       votingOpen: true,
+      activeElectionId: "99999999-9999-4999-8999-999999999999",
     });
   });
 
@@ -94,6 +96,7 @@ describe("isLiveState (guarda usada no polling do cliente)", () => {
     participation: 10,
     serverTime: "2026-09-19T11:00:00Z",
     votingOpen: true,
+    activeElectionId: "99999999-9999-4999-8999-999999999999",
   };
 
   it("aceita um payload completo", () => {
@@ -112,6 +115,10 @@ describe("isLiveState (guarda usada no polling do cliente)", () => {
     // O cliente chama toFixed() no valor: uma string passaria pela
     // checagem frouxa de truthiness e estouraria na renderização.
     expect(isLiveState({ ...valid, participation: "10" })).toBe(false);
+  });
+
+  it("aceita eleição ativa nula (nenhuma votação aberta)", () => {
+    expect(isLiveState({ ...valid, activeElectionId: null })).toBe(true);
   });
 
   it("rejeita campos ausentes", () => {

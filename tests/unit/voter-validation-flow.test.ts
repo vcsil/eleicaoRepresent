@@ -38,11 +38,17 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/security/security-events", () => ({ logSecurityEvent: async () => {} }));
 
-// getMainElection é envolvida por unstable_cache, que exige o contexto de
-// cache do Next — indisponível num teste unitário. O que importa aqui é o
-// comportamento da action, não a leitura da eleição.
-vi.mock("@/lib/election/status", () => ({
-  getMainElection: async () => ({ id: "11111111-1111-4111-8111-111111111111" }),
+// A action resolve a eleição EFETIVAMENTE aberta (geral ou desempate).
+// O id devolvido aqui é DIFERENTE do da eleição geral de propósito: é
+// assim que se prova que a action usa a eleição ativa, e não um id fixo.
+const RUNOFF_ID = "77777777-7777-4777-8777-777777777777";
+vi.mock("@/lib/election/active-election", () => ({
+  getCurrentVotingElection: async () => ({
+    electionId: RUNOFF_ID,
+    type: "runoff" as const,
+    parentElectionId: "11111111-1111-4111-8111-111111111111",
+    positions: [{ position_id: "p1", votes_per_voter: 1, vacancies: 1 }],
+  }),
 }));
 vi.mock("@/lib/security/hashing", async () => {
   const { createHmac } = await import("node:crypto");
@@ -94,10 +100,9 @@ describe("tetos de rate limit por dimensão", () => {
   });
 });
 
-describe("validateVoterAction em dispositivo compartilhado", () => {
-  it("apaga a confirmação do eleitor anterior ao validar um novo", async () => {
+describe("validateVoterAction", () => {
+  async function runValidation() {
     const { validateVoterAction } = await import("@/app/(public)/votar/actions");
-    const { VOTE_CONFIRMED_COOKIE } = await import("@/lib/election/vote-session");
 
     rpc.mockImplementation(async (fn) => {
       if (fn === "check_and_increment_rate_limit") return { data: true, error: null };
@@ -117,10 +122,21 @@ describe("validateVoterAction em dispositivo compartilhado", () => {
     const formData = new FormData();
     formData.set("registration_number", "2020123456");
     formData.set("full_name", "Maria Souza");
-
-    // O sucesso termina em redirect, que o mock transforma em throw.
     await expect(validateVoterAction({ error: null }, formData)).rejects.toThrow("NEXT_REDIRECT");
+  }
 
+  it("valida contra a eleição ATIVA, não contra a eleição geral", async () => {
+    // A regressão que isto trava: antes a action chamava sempre
+    // getMainElection(), e por isso nenhum desempate era votável.
+    await runValidation();
+
+    const chamada = rpc.mock.calls.find(([fn]) => fn === "validate_voter");
+    expect(chamada?.[1]).toMatchObject({ p_election_id: RUNOFF_ID });
+  });
+
+  it("apaga a confirmação do eleitor anterior ao validar um novo", async () => {
+    const { VOTE_CONFIRMED_COOKIE } = await import("@/lib/election/vote-session");
+    await runValidation();
     expect(cookieDelete).toHaveBeenCalledWith(VOTE_CONFIRMED_COOKIE);
   });
 });

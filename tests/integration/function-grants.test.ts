@@ -87,13 +87,18 @@ describe("permissões das funções de leitura consolidada (migration 0012)", ()
       });
     }
 
-    it("não devolve nenhum campo além de status, participação e hora do servidor", async () => {
+    it("não devolve nenhum campo além de status, participação, hora e eleição ativa", async () => {
       const result = (await callAs("anon", "select get_live_election_state($1) as result", [
         electionId,
       ])) as Record<string, unknown>;
       // Trava contra alguém acrescentar um campo sensível aqui no futuro:
       // este é um payload público, servido sem autenticação.
-      expect(Object.keys(result).sort()).toEqual(["participation", "server_time", "status"]);
+      expect(Object.keys(result).sort()).toEqual([
+        "active_election_id",
+        "participation",
+        "server_time",
+        "status",
+      ]);
     });
 
     it("expõe participação durante a votação", async () => {

@@ -74,6 +74,9 @@ Nunca use o prefixo `NEXT_PUBLIC_` em nenhuma das variáveis marcadas "Não".
    supabase/migrations/0010_fix_service_role_grants.sql
    supabase/migrations/0011_grant_service_role_tables.sql
    supabase/migrations/0012_dashboard_and_live_state.sql
+   supabase/migrations/0013_runoff_multi_position_schema.sql
+   supabase/migrations/0014_runoff_functions.sql
+   supabase/migrations/0015_live_state_follows_active_election.sql
    ```
 4. Rode `supabase/seed.sql` para cadastrar a eleição principal, os 6 cargos
    (13 vagas) e o cronograma oficial (seção 7 do documento técnico) — os
@@ -187,6 +190,68 @@ cache estático), nenhuma etapa extra de revalidação é necessária.
   candidatos ativos, cronograma, resultados após publicação) tem policy de
   leitura para `anon`/`authenticated`.
 - **Detalhes completos**: seções 4-15 de `docs/TECHNICAL_DESIGN.md`.
+
+## Fluxo de desempate
+
+**Como o empate é detectado.** `compute_results` marca `tie_break_needed`
+apenas no grupo de candidatos que *cruza* a linha de corte das vagas —
+empate fora dela não gera pendência.
+
+**Como a publicação é bloqueada.** `publish_results` recusa enquanto
+houver `tie_break_needed`, decisão de cargo duplo pendente, ou eleição
+filha não publicada.
+
+**Como o desempate é criado.** `create_runoff_election(pai, cargos[],
+motivo, cronograma)` recebe **apenas** quais cargos e quando. Os
+candidatos saem de `result_snapshots` (os empatados daquele cargo) e as
+vagas em disputa são derivadas: vagas do cargo menos os já eleitos. Nada
+que decida o resultado vem do navegador. Um índice parcial em
+`runoff_positions` impede dois desempates abertos para o mesmo cargo —
+duplo clique é barrado no banco, não no botão.
+
+**Um desempate cobre N cargos.** Se houver empate em cargos diferentes,
+tudo entra numa única eleição de desempate: uma sessão, uma cédula, um
+`audit_vote_links`, como na geral. Por isso no máximo uma eleição fica
+aberta por vez, e `get_current_voting_election()` resolve qual é sem
+ambiguidade.
+
+**Como o eleitor vota de novo.** A unicidade é `(election_id, voter_id)`
+em `audit_vote_links`, então quem votou na geral vota uma vez no
+desempate — e só uma.
+
+**Como o desempate resolve a eleição principal.** `publish_results` de um
+desempate chama `resolve_parent_ties_from_runoff` na **mesma transação**:
+os N mais votados viram `elected = true` nos snapshots do *pai*, o grupo
+empatado deixa de ser pendência, os perdedores ficam não eleitos, e cada
+vaga resolvida gera uma linha em `runoff_resolutions` (com os votos do
+desempate). Os `votes_count` da eleição original **não são alterados** —
+os dois pleitos são registros distintos. Ser transacional é o que impede
+o estado que existia antes: desempate publicado e pai travado em
+`TIE_PENDING` para sempre.
+
+**Como o eleitor chega à urna do desempate.** `/votar` não resolve mais
+"a eleição geral", e sim a votação efetivamente aberta
+(`get_current_voting_election`). A urna e a revisão, por sua vez, usam a
+eleição da **sessão** do eleitor, não a que estiver aberta no momento: se
+a votação virasse entre a validação e o envio, a pessoa veria uma cédula
+que sua sessão não autoriza. Na urna do desempate aparecem apenas os
+cargos em disputa, os candidatos empatados e a opção Nulo.
+
+**O que a home mostra.** Havendo votação aberta — geral ou desempate —,
+`get_live_election_state` devolve o estado *dela*, e a home exibe
+"Votação de desempate em andamento" com o botão apontando para a urna.
+Antes ficava em "Desempate necessário", verdade sobre a eleição principal
+e inútil para quem precisava votar.
+
+**O que o resultado público mostra.** Quem foi eleito por desempate
+aparece com o selo "Eleito por desempate", e a votação de desempate é
+exibida como um bloco próprio, abaixo da votação original — as duas
+rodadas lado a lado, cada uma com seus números.
+
+**Se o desempate empatar de novo.** Nada é decidido automaticamente: a
+pendência permanece, `publish_results` recusa, e o administrador cria uma
+nova rodada — filha do desempate empatado. A cadeia de `RUNOFF_PENDING`
+resolve em ordem.
 
 ## Notas de arquitetura (segundo deploy)
 

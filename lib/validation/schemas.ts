@@ -75,12 +75,12 @@ export const scheduleUpdateSchema = z
   })
   .strict();
 
+// Candidatos, vagas em disputa e votos por eleitor NÃO vêm do formulário:
+// são derivados de result_snapshots dentro de create_runoff_election. O
+// navegador informa apenas quais cargos e quando.
 export const runoffCreateSchema = z
   .object({
-    position_id: z.string().uuid(),
-    candidate_ids: z.array(z.string().uuid()).min(2).max(20),
-    votes_per_voter: z.number().int().min(1).max(20),
-    vacancies: z.number().int().min(1).max(20),
+    position_ids: z.array(z.string().uuid()).min(1).max(20),
     reason: z.string().trim().min(1).max(500),
     starts_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     ends_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),

@@ -22,11 +22,14 @@ export function BallotWizard({
   positions,
   candidatesByPosition,
   draftKey,
+  isRunoff = false,
 }: {
   positions: WizardPosition[];
   candidatesByPosition: Record<string, WizardCandidate[]>;
   /** Chave do rascunho, derivada da sessão de voto pelo servidor. */
   draftKey: string;
+  /** Votação de desempate: a urna traz só os cargos e candidatos empatados. */
+  isRunoff?: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -85,6 +88,11 @@ export function BallotWizard({
 
   return (
     <div>
+      {isRunoff && (
+        <p className="mb-5 rounded-md border border-warning bg-warning-bg px-3.5 py-3 text-sm text-warning">
+          Votação de desempate — apenas o(s) cargo(s) e candidatos empatados aparecem aqui.
+        </p>
+      )}
       <VoteProgress step={stepIndex + 1} total={positions.length} />
 
       <VoteDistributionCard
