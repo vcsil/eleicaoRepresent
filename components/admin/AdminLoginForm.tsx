@@ -6,11 +6,16 @@ import { adminLoginAction, type AdminLoginState } from "@/app/admin/actions";
 
 const initialState: AdminLoginState = { error: null };
 
-export function AdminLoginForm() {
+export function AdminLoginForm({ expired = false }: { expired?: boolean }) {
   const [state, formAction, isPending] = useActionState(adminLoginAction, initialState);
 
   return (
     <form action={formAction} className="space-y-5" noValidate>
+      {expired && !state.error && (
+        <p role="status" className="rounded-md bg-warning-bg px-3.5 py-3 text-sm text-foreground">
+          Sua sessão expirou por inatividade. Entre novamente.
+        </p>
+      )}
       <div>
         <label htmlFor="password" className="block text-sm font-medium text-foreground">
           Senha administrativa

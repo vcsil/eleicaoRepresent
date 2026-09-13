@@ -21,7 +21,8 @@ export async function resetDatabase(): Promise<void> {
       candidate_positions, candidates, voters,
       runoff_positions, runoff_resolutions,
       election_phases, elections, positions,
-      rate_limit_counters, security_events
+      rate_limit_counters, security_events,
+      admin_sessions, admin_logs
     cascade
   `);
 }

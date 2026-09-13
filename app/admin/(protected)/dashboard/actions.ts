@@ -3,6 +3,7 @@
 import { revalidatePath, updateTag } from "next/cache";
 import { CACHE_TAGS } from "@/lib/cache/tags";
 import { logAdminAction } from "@/lib/admin/audit-log";
+import { requireAdminSession } from "@/lib/admin/session";
 
 export type InvalidateCacheState = { error: string | null; success?: boolean };
 
@@ -24,6 +25,7 @@ export type InvalidateCacheState = { error: string | null; success?: boolean };
  * invalidar neles e esta ação não tem como afetar a segurança do pleito.
  */
 export async function invalidateAllCachesAction(): Promise<InvalidateCacheState> {
+  await requireAdminSession();
   const tags = Object.values(CACHE_TAGS);
   for (const tag of tags) {
     updateTag(tag);

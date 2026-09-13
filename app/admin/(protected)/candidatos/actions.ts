@@ -7,6 +7,7 @@ import { candidateUpsertSchema } from "@/lib/validation/schemas";
 import { createServiceClient } from "@/lib/supabase/service";
 import { uploadCandidatePhoto, deleteCandidatePhoto, PhotoUploadError } from "@/lib/admin/photo-upload";
 import { logAdminAction } from "@/lib/admin/audit-log";
+import { requireAdminSession } from "@/lib/admin/session";
 
 export type CandidateFormState = { error: string | null };
 
@@ -25,6 +26,7 @@ export async function upsertCandidateAction(
   _prevState: CandidateFormState,
   formData: FormData,
 ): Promise<CandidateFormState> {
+  await requireAdminSession();
   const id = formData.get("id");
   const positionIds = [formData.get("position_id_1"), formData.get("position_id_2")].filter(
     (v): v is string => typeof v === "string" && v.length > 0,
@@ -116,6 +118,7 @@ export async function upsertCandidateAction(
 }
 
 export async function setCandidateActiveAction(candidateId: string, active: boolean): Promise<void> {
+  await requireAdminSession();
   const supabase = createServiceClient();
   const { error } = await supabase.from("candidates").update({ active }).eq("id", candidateId);
   if (error) throw error;

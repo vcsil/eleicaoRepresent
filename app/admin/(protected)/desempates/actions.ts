@@ -5,6 +5,7 @@ import { CACHE_TAGS } from "@/lib/cache/tags";
 import { dualWinnerDecisionSchema, runoffCreateSchema } from "@/lib/validation/schemas";
 import { createServiceClient } from "@/lib/supabase/service";
 import { logAdminAction } from "@/lib/admin/audit-log";
+import { requireAdminSession } from "@/lib/admin/session";
 
 export type ActionState = { error: string | null };
 
@@ -12,6 +13,7 @@ export async function resolveDualWinnerAction(
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  await requireAdminSession();
   const parsed = dualWinnerDecisionSchema.safeParse({
     decision_id: formData.get("decision_id"),
     chosen_position_id: formData.get("chosen_position_id"),
@@ -39,6 +41,7 @@ export async function createRunoffAction(
   _prevState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  await requireAdminSession();
   const parentElectionId = formData.get("parent_election_id");
   const positionIds = formData
     .getAll("position_ids")
