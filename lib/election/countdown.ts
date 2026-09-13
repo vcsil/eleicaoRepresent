@@ -1,6 +1,11 @@
-import "server-only";
+// Sem `server-only`: o countdown ao vivo recalcula o alvo no cliente
+// quando o status muda (votação abre/encerra) sem recarregar a página.
 import type { ElectionStatus } from "@/lib/election/status";
-import { getPhaseBounds, type ElectionPhase, type ElectionPhaseKey } from "@/lib/election/phases";
+import {
+  getPhaseBounds,
+  type ElectionPhase,
+  type ElectionPhaseKey,
+} from "@/lib/election/phase-bounds";
 
 function bound(phases: ElectionPhase[], key: ElectionPhaseKey, edge: "starts" | "ends") {
   const phase = phases.find((p) => p.phase_key === key);

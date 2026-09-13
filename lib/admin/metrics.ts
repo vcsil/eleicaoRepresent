@@ -1,7 +1,10 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/service";
+import { ELECTION_STATUSES, type ElectionStatus } from "@/lib/election/status-values";
 
 export type DashboardMetrics = {
+  status: ElectionStatus;
+  participation: number;
   totalVoters: number;
   totalCandidates: number;
   totalSiteViews: number;
@@ -15,55 +18,53 @@ export type DashboardMetrics = {
   resultsPublished: boolean;
 };
 
+function toNumber(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/**
+ * Painel administrativo em um único round trip.
+ *
+ * Antes eram 7 consultas paralelas, duas delas trazendo TODAS as linhas de
+ * `security_events` e de `site_access_stats` para contar e somar em
+ * JavaScript — custo que crescia sem limite conforme o site fosse usado.
+ * Agora a agregação acontece no Postgres, em `get_admin_dashboard_metrics`.
+ *
+ * A função é restrita a service_role (revoke de anon/authenticated na
+ * migration 0012): contagens de eventos de segurança não podem ser
+ * alcançáveis com a chave pública.
+ *
+ * Inclui status e participação — diferente da função pública, que só
+ * devolve participação durante a votação. O admin precisa do número em
+ * qualquer fase.
+ */
 export async function getDashboardMetrics(electionId: string): Promise<DashboardMetrics> {
   const supabase = createServiceClient();
+  const { data, error } = await supabase.rpc("get_admin_dashboard_metrics", {
+    p_election_id: electionId,
+  });
+  if (error) throw error;
 
-  const [
-    voters,
-    candidates,
-    siteViews,
-    securityEventsByType,
-    election,
-    tiesPending,
-    dualWinnersPending,
-  ] = await Promise.all([
-    supabase.from("voters").select("id", { count: "exact", head: true }).eq("active", true),
-    supabase.from("candidates").select("id", { count: "exact", head: true }).eq("active", true),
-    supabase.from("site_access_stats").select("views"),
-    supabase.from("security_events").select("type"),
-    supabase
-      .from("elections")
-      .select("results_computed_at, results_published_at")
-      .eq("id", electionId)
-      .maybeSingle(),
-    supabase
-      .from("result_snapshots")
-      .select("id", { count: "exact", head: true })
-      .eq("election_id", electionId)
-      .eq("tie_break_needed", true),
-    supabase
-      .from("position_dual_winner_decisions")
-      .select("id", { count: "exact", head: true })
-      .eq("election_id", electionId)
-      .eq("status", "pending"),
-  ]);
-
-  const totalSiteViews = (siteViews.data ?? []).reduce((sum, row) => sum + (row.views ?? 0), 0);
-  const eventTypes = (securityEventsByType.data ?? []).map((r) => r.type as string);
+  const row = (data ?? {}) as Record<string, unknown>;
+  const status = row.status;
+  if (typeof status !== "string" || !(ELECTION_STATUSES as readonly string[]).includes(status)) {
+    throw new Error("get_admin_dashboard_metrics returned an unknown status");
+  }
 
   return {
-    totalVoters: voters.count ?? 0,
-    totalCandidates: candidates.count ?? 0,
-    totalSiteViews,
-    validationAttempts: eventTypes.filter(
-      (t) => t === "INVALID_VOTER_VALIDATION" || t === "DUPLICATE_VOTE_ATTEMPT",
-    ).length,
-    invalidAttempts: eventTypes.filter((t) => t === "INVALID_VOTER_VALIDATION").length,
-    duplicateVoteAttempts: eventTypes.filter((t) => t === "DUPLICATE_VOTE_ATTEMPT").length,
-    securityEvents: eventTypes.length,
-    tiesPending: tiesPending.count ?? 0,
-    dualWinnersPending: dualWinnersPending.count ?? 0,
-    resultsComputed: Boolean(election.data?.results_computed_at),
-    resultsPublished: Boolean(election.data?.results_published_at),
+    status: status as ElectionStatus,
+    participation: toNumber(row.participation),
+    totalVoters: toNumber(row.total_voters),
+    totalCandidates: toNumber(row.total_candidates),
+    totalSiteViews: toNumber(row.total_site_views),
+    validationAttempts: toNumber(row.validation_attempts),
+    invalidAttempts: toNumber(row.invalid_attempts),
+    duplicateVoteAttempts: toNumber(row.duplicate_vote_attempts),
+    securityEvents: toNumber(row.security_events),
+    tiesPending: toNumber(row.ties_pending),
+    dualWinnersPending: toNumber(row.dual_winners_pending),
+    resultsComputed: row.results_computed === true,
+    resultsPublished: row.results_published === true,
   };
 }

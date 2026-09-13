@@ -2,41 +2,18 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { createAnonClient } from "@/lib/supabase/server";
 import { CACHE_TAGS } from "@/lib/cache/tags";
+import type { ElectionStatus } from "@/lib/election/status-values";
 
-/** Espelha o enum retornado por compute_election_status() no Postgres. */
-export const ELECTION_STATUSES = [
-  "nao_iniciada",
-  "candidaturas_abertas",
-  "candidaturas_encerradas",
-  "candidatos_divulgados",
-  "apresentacao",
-  "aguardando_votacao",
-  "votacao_em_andamento",
-  "votacao_encerrada",
-  "em_apuracao",
-  "aguardando_divulgacao",
-  "resultado_disponivel",
-  "desempate_necessario",
-  "votacao_desempate",
-] as const;
-
-export type ElectionStatus = (typeof ELECTION_STATUSES)[number];
-
-export const ELECTION_STATUS_LABELS: Record<ElectionStatus, string> = {
-  nao_iniciada: "Eleição ainda não iniciada",
-  candidaturas_abertas: "Candidaturas abertas",
-  candidaturas_encerradas: "Candidaturas encerradas",
-  candidatos_divulgados: "Candidatos divulgados",
-  apresentacao: "Apresentação dos candidatos",
-  aguardando_votacao: "Aguardando votação",
-  votacao_em_andamento: "Votação em andamento",
-  votacao_encerrada: "Votação encerrada",
-  em_apuracao: "Em apuração",
-  aguardando_divulgacao: "Aguardando divulgação",
-  resultado_disponivel: "Resultado disponível",
-  desempate_necessario: "Desempate necessário",
-  votacao_desempate: "Votação de desempate",
-};
+// Reexportados para que os consumidores existentes continuem importando
+// daqui; o vocabulário vive em status-values.ts porque os componentes ao
+// vivo precisam dele no cliente.
+export {
+  ELECTION_STATUSES,
+  ELECTION_STATUS_LABELS,
+  VOTING_STATUSES,
+  isVotingOpen,
+  type ElectionStatus,
+} from "@/lib/election/status-values";
 
 export type Election = {
   id: string;
@@ -81,6 +58,10 @@ export const getMainElection = unstable_cache(fetchMainElection, ["main-election
  * Status autoritativo, sempre calculado no servidor (nunca no cliente) e
  * NUNCA cacheado: depende de now() do Postgres e é o que autoriza (ou
  * nega) o acesso à urna.
+ *
+ * Para a home e o painel, prefira getLiveElectionState /
+ * getAdminDashboardMetrics: trazem o status junto com a participação em um
+ * único round trip.
  */
 export async function getElectionStatus(electionId: string): Promise<ElectionStatus> {
   const supabase = createAnonClient();
@@ -89,10 +70,4 @@ export async function getElectionStatus(electionId: string): Promise<ElectionSta
   });
   if (error) throw error;
   return data as ElectionStatus;
-}
-
-export const VOTING_STATUSES: ElectionStatus[] = ["votacao_em_andamento", "votacao_desempate"];
-
-export function isVotingOpen(status: ElectionStatus): boolean {
-  return VOTING_STATUSES.includes(status);
 }

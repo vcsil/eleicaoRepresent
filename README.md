@@ -73,6 +73,7 @@ Nunca use o prefixo `NEXT_PUBLIC_` em nenhuma das variáveis marcadas "Não".
    supabase/migrations/0009_analytics.sql
    supabase/migrations/0010_fix_service_role_grants.sql
    supabase/migrations/0011_grant_service_role_tables.sql
+   supabase/migrations/0012_dashboard_and_live_state.sql
    ```
 4. Rode `supabase/seed.sql` para cadastrar a eleição principal, os 6 cargos
    (13 vagas) e o cronograma oficial (seção 7 do documento técnico) — os
@@ -104,6 +105,14 @@ migration `0007_storage.sql`.
 > direto (`.from(tabela)`, fora das funções `SECURITY DEFINER`) estava
 > quebrado. Rode `supabase/migrations/0011_grant_service_role_tables.sql`
 > no projeto existente.
+>
+> **Já aplicou até a 0011?** A `0012_dashboard_and_live_state.sql` só
+> adiciona duas funções de leitura consolidada
+> (`get_admin_dashboard_metrics`, usada pelo painel, e
+> `get_live_election_state`, usada pela home durante a votação). Não altera
+> nenhuma tabela nem nenhuma função existente; aplicar é seguro a qualquer
+> momento. **Antes de aplicar**, o painel e a home falham com "permission
+> denied for function ..." — as duas passaram a depender dela.
 
 ## Desenvolvimento
 

@@ -34,8 +34,16 @@ export async function validateVoterAction(
   const userAgentSummary = summarizeUserAgent(headerList.get("user-agent"));
   const registrationHash = hashKey(parsed.data.registration_number.toLowerCase());
 
-  const allowedByIp = await checkRateLimit("voter_validate", ipHash);
-  const allowedByRegistration = await checkRateLimit("voter_validate", registrationHash);
+  // Os dois limites são independentes (um por IP, um por matrícula) e
+  // ambos são sempre avaliados — o segundo não depende do resultado do
+  // primeiro. Em série, custavam dois round trips; em paralelo, um.
+  // Contar as duas tentativas mesmo quando uma já estourou é deliberado:
+  // é assim que o contador por matrícula registra a tentativa de quem
+  // troca de IP, e vice-versa.
+  const [allowedByIp, allowedByRegistration] = await Promise.all([
+    checkRateLimit("voter_validate", ipHash),
+    checkRateLimit("voter_validate", registrationHash),
+  ]);
 
   if (!allowedByIp || !allowedByRegistration) {
     await logSecurityEvent({
