@@ -134,8 +134,15 @@ app. **Alterações feitas direto no banco** (SQL Editor do Supabase,
 valor antigo. Vale para candidatos, cargos, cronograma e a linha da
 eleição.
 
-Mitigação proposta (ainda não implementada, aguardando decisão): um botão
-"invalidar cache" em `/admin` chamando `updateTag` para todas as tags.
+**Mitigação implementada**: o painel (`/admin/dashboard` → "Cache do
+site") tem o botão "Atualizar dados do site", que chama
+`invalidateAllCachesAction` — ela itera sobre `CACHE_TAGS` e invalida
+todas. Iterar, em vez de listar as tags à mão, garante que uma tag criada
+no futuro já entre no botão; o teste compara o conjunto invalidado com
+`Object.values(CACHE_TAGS)` e quebra se alguma ficar de fora (verificado
+por mutation test). A ação é registrada em `admin_logs` como
+`CACHE_INVALIDATED` e não toca em nada autoritativo — status, votos,
+sessões e validação de eleitor nunca foram cacheados.
 
 ---
 
@@ -148,3 +155,13 @@ Mitigação proposta (ainda não implementada, aguardando decisão): um botão
   retenção de 30 dias)
 - **3**: fluxo crítico (consolidação da validação do eleitor, candidato +
   cargos transacional) — só mediante aprovação explícita
+
+### Decisões já tomadas para a Etapa 2
+
+- **p75 com amostra pequena**: abaixo de **30 amostras** no recorte, a
+  página mostra "amostra insuficiente" em vez de um percentil que não
+  significa nada.
+- **Métricas de backend**: coletadas em **100%** das requisições, via
+  `after()` — fora do caminho crítico, então amostrar não compraria nada.
+- **`device_class`**: só `mobile` e `desktop`. Sem `tablet` (volume
+  esperado não justifica um terceiro recorte).

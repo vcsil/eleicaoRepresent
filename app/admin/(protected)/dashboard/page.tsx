@@ -5,6 +5,7 @@ import { getParticipationPercentage } from "@/lib/election/participation";
 import { getDashboardMetrics } from "@/lib/admin/metrics";
 import { MetricCard } from "@/components/admin/MetricCard";
 import { EmptyState } from "@/components/feedback/EmptyState";
+import { InvalidateCacheButton } from "@/components/admin/InvalidateCacheButton";
 
 export const metadata: Metadata = { title: "Painel — Administração" };
 export const dynamic = "force-dynamic";
@@ -59,6 +60,13 @@ export default async function AdminDashboardPage() {
           }
         />
       </div>
+
+      <section className="mt-10 border-t border-border pt-6">
+        <h2 className="text-lg font-semibold text-foreground">Cache do site</h2>
+        <div className="mt-3">
+          <InvalidateCacheButton />
+        </div>
+      </section>
     </div>
   );
 }

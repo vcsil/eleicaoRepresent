@@ -191,6 +191,11 @@ Administrativas (autenticação por senha única, sessão HttpOnly):
 
 ## Limitações conhecidas / próximos passos
 
+- Cargos, candidatos e cronograma são servidos do Data Cache e só são
+  invalidados por ações do painel. **Se você alterar esses dados direto no
+  banco** (SQL Editor do Supabase, `psql`), clique em "Atualizar dados do
+  site" em `/admin/dashboard` — senão o site continua mostrando o valor
+  antigo. Detalhes em [`docs/PERFORMANCE_V2.md`](docs/PERFORMANCE_V2.md).
 - Autenticação administrativa por senha única está desenhada para migrar
   no futuro para Supabase Auth com contas individuais (seção 62 do
   documento técnico) — não implementado nesta fase, por decisão explícita.

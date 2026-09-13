@@ -53,6 +53,9 @@ const { publishResultsAction } = await import("@/app/admin/(protected)/resultado
 const { closeVotingAction, computeResultsAction } = await import(
   "@/app/admin/(protected)/votacao/actions"
 );
+const { invalidateAllCachesAction } = await import(
+  "@/app/admin/(protected)/dashboard/actions"
+);
 
 const ELECTION_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -131,6 +134,19 @@ describe("invalidação de cache nas actions administrativas", () => {
 
     expect(result.error).not.toBeNull();
     expect(invalidatedTags()).toHaveLength(0);
+  });
+});
+
+describe("invalidação manual pelo painel", () => {
+  it("cobre TODAS as tags — uma tag nova não pode ficar de fora", async () => {
+    const result = await invalidateAllCachesAction();
+
+    expect(result.error).toBeNull();
+    // Comparação por conjunto contra CACHE_TAGS: se alguém adicionar uma
+    // tag nova e a action não a invalidar, este teste quebra. É o ponto
+    // do botão — ele é o escape para alterações feitas direto no banco,
+    // e um escape parcial não serve.
+    expect(new Set(invalidatedTags())).toEqual(new Set(Object.values(CACHE_TAGS)));
   });
 });
 
