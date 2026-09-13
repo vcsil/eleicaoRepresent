@@ -19,8 +19,17 @@ funções novas).
 
 ```
 1. migration 0012 no Supabase
-2. deploy do código no Vercel
+2. merge da PR #2 em main
+3. deploy automático do Vercel a partir de main
 ```
+
+> **Atenção ao preview da PR.** O deploy de preview que o Vercel cria para a
+> PR usa as mesmas variáveis de ambiente — isto é, o **mesmo projeto
+> Supabase** da produção. Enquanto a migration `0012` não for aplicada, a
+> home e `/admin/dashboard` do preview respondem erro 500
+> (`permission denied for function get_live_election_state` /
+> `get_admin_dashboard_metrics`). Isso é esperado e não indica problema no
+> código: aplique a migration e recarregue o preview.
 
 ---
 
