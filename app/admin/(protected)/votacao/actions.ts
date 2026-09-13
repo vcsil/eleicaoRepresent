@@ -4,6 +4,7 @@ import { revalidatePath, updateTag } from "next/cache";
 import { CACHE_TAGS } from "@/lib/cache/tags";
 import { createServiceClient } from "@/lib/supabase/service";
 import { logAdminAction } from "@/lib/admin/audit-log";
+import { requireAdminSession } from "@/lib/admin/session";
 
 export type ElectionControlState = { error: string | null };
 
@@ -11,6 +12,7 @@ export async function closeVotingAction(
   _prevState: ElectionControlState,
   formData: FormData,
 ): Promise<ElectionControlState> {
+  await requireAdminSession();
   const electionId = formData.get("election_id");
   if (typeof electionId !== "string") return { error: "Eleição inválida." };
 
@@ -35,6 +37,7 @@ export async function computeResultsAction(
   _prevState: ElectionControlState,
   formData: FormData,
 ): Promise<ElectionControlState> {
+  await requireAdminSession();
   const electionId = formData.get("election_id");
   if (typeof electionId !== "string") return { error: "Eleição inválida." };
 

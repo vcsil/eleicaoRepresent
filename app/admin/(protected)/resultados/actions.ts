@@ -4,6 +4,7 @@ import { revalidatePath, updateTag } from "next/cache";
 import { CACHE_TAGS } from "@/lib/cache/tags";
 import { createServiceClient } from "@/lib/supabase/service";
 import { logAdminAction } from "@/lib/admin/audit-log";
+import { requireAdminSession } from "@/lib/admin/session";
 
 export type PublishState = { error: string | null };
 
@@ -18,6 +19,7 @@ export async function publishResultsAction(
   _prevState: PublishState,
   formData: FormData,
 ): Promise<PublishState> {
+  await requireAdminSession();
   const electionId = formData.get("election_id");
   if (typeof electionId !== "string") return { error: "Eleição inválida." };
 

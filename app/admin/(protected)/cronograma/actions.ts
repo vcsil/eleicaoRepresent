@@ -5,6 +5,7 @@ import { CACHE_TAGS } from "@/lib/cache/tags";
 import { scheduleUpdateSchema } from "@/lib/validation/schemas";
 import { createServiceClient } from "@/lib/supabase/service";
 import { logAdminAction } from "@/lib/admin/audit-log";
+import { requireAdminSession } from "@/lib/admin/session";
 
 export type ScheduleFormState = { error: string | null; success?: boolean };
 
@@ -12,6 +13,7 @@ export async function updatePhaseAction(
   _prevState: ScheduleFormState,
   formData: FormData,
 ): Promise<ScheduleFormState> {
+  await requireAdminSession();
   const electionId = formData.get("election_id");
   const parsed = scheduleUpdateSchema.safeParse({
     phase_key: formData.get("phase_key"),

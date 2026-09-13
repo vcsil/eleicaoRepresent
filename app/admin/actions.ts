@@ -5,7 +5,11 @@ import { headers } from "next/headers";
 import bcrypt from "bcryptjs";
 import { adminLoginSchema } from "@/lib/validation/schemas";
 import { getServerEnv } from "@/lib/env";
-import { createAdminSession, destroyAdminSession } from "@/lib/admin/session";
+import {
+  createAdminSession,
+  destroyAdminSession,
+  renewAdminSession,
+} from "@/lib/admin/session";
 import { logAdminAction } from "@/lib/admin/audit-log";
 import { getClientIp, summarizeUserAgent } from "@/lib/security/ip";
 import { hashIp } from "@/lib/security/hashing";
@@ -70,4 +74,19 @@ export async function adminLogoutAction(): Promise<void> {
   await logAdminAction("ADMIN_LOGOUT");
   await destroyAdminSession();
   redirect("/admin");
+}
+
+export type AdminHeartbeatResult =
+  | { ok: true; expiresAt: string }
+  | { ok: false; reason: "expired" };
+
+/** Deve ser chamada pelo cliente somente após atividade humana real. */
+export async function renewAdminSessionAction(): Promise<AdminHeartbeatResult> {
+  const session = await renewAdminSession();
+  if (!session) {
+    await destroyAdminSession();
+    await logAdminAction("ADMIN_SESSION_EXPIRED");
+    return { ok: false, reason: "expired" };
+  }
+  return { ok: true, expiresAt: session.expiresAt.toISOString() };
 }

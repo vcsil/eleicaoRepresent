@@ -6,7 +6,11 @@ import { AdminLoginForm } from "@/components/admin/AdminLoginForm";
 export const metadata: Metadata = { title: "Administração" };
 export const dynamic = "force-dynamic";
 
-export default async function AdminLoginPage() {
+export default async function AdminLoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ reason?: string }>;
+}) {
   const session = await getAdminSession();
   if (session) {
     redirect("/admin/dashboard");
@@ -22,7 +26,7 @@ export default async function AdminLoginPage() {
           Comissão de Formatura — Turma 36
         </p>
         <div className="mt-8 rounded-lg border border-border bg-surface p-6 shadow-sm">
-          <AdminLoginForm />
+          <AdminLoginForm expired={(await searchParams).reason === "expired"} />
         </div>
       </div>
     </div>
