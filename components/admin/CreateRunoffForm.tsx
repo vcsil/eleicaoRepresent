@@ -41,20 +41,21 @@ export function CreateRunoffForm({ tie, electionId }: { tie: PendingTie; electio
           precisam ser informados aqui.
         </p>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
+        {/* Mesmo motivo do cronograma: date/time não encolhem, transbordam. */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="min-w-0">
             <label className="text-xs font-medium text-foreground-muted">Data inicial</label>
             <input type="date" name="starts_on" required className={inputClass} />
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="text-xs font-medium text-foreground-muted">Hora inicial</label>
             <input type="time" name="start_time" required defaultValue="08:00" className={inputClass} />
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="text-xs font-medium text-foreground-muted">Data final</label>
             <input type="date" name="ends_on" required className={inputClass} />
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="text-xs font-medium text-foreground-muted">Hora final</label>
             <input type="time" name="end_time" required defaultValue="18:00" className={inputClass} />
           </div>

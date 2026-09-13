@@ -41,8 +41,14 @@ export default async function AdminEleitoresPage() {
         <section className="mt-12">
           <h2 className="text-sm font-semibold text-foreground">Lista atual</h2>
           <Card className="mt-3 overflow-hidden">
-            <div className="max-h-[32rem] overflow-y-auto">
-              <table className="w-full text-left text-sm">
+            {/*
+              Scroll horizontal LOCAL, dentro do card: abaixo de ~500px as
+              três colunas só caberiam espremendo "Nome" a ponto de quebrar
+              cada nome em várias linhas. O documento continua sem scroll
+              horizontal — só esta caixa rola.
+            */}
+            <div className="max-h-[32rem] overflow-x-auto overflow-y-auto">
+              <table className="w-full min-w-[30rem] text-left text-sm">
                 <thead className="sticky top-0 bg-surface-muted text-xs uppercase text-foreground-muted">
                   <tr>
                     <th className="px-4 py-2.5">Matrícula</th>

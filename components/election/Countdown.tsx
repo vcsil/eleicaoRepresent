@@ -59,7 +59,12 @@ export function Countdown({
       aria-live="off"
     >
       <p className="text-sm font-medium text-foreground-muted">{label}</p>
-      <div className="mt-3 grid grid-cols-4 gap-2 text-center">
+      {/*
+        2x2 abaixo de sm: em 320px cada célula ficava com 58px e o rótulo
+        "segundos" pedia 65px. Empilhar em duas linhas mantém tudo legível sem
+        reduzir a fonte nem abreviar o rótulo.
+      */}
+      <div className="mt-3 grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
         {UNITS.map((unit) => (
           <div key={unit.key} className="rounded-md bg-surface-muted py-2">
             <span className="block text-xl font-semibold tabular-nums text-foreground sm:text-2xl">
