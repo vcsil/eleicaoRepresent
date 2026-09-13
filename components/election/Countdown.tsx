@@ -1,18 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-function getRemaining(targetIso: string) {
-  const diff = Math.max(0, new Date(targetIso).getTime() - Date.now());
-  const totalSeconds = Math.floor(diff / 1000);
-  return {
-    days: Math.floor(totalSeconds / 86400),
-    hours: Math.floor((totalSeconds % 86400) / 3600),
-    minutes: Math.floor((totalSeconds % 3600) / 60),
-    seconds: totalSeconds % 60,
-    done: diff === 0,
-  };
-}
+import { getRemaining } from "@/lib/election/countdown";
 
 const UNITS: { key: "days" | "hours" | "minutes" | "seconds"; label: string }[] = [
   { key: "days", label: "dias" },
@@ -24,20 +13,44 @@ const UNITS: { key: "days" | "hours" | "minutes" | "seconds"; label: string }[] 
 /**
  * Cronômetro visual (seção 6). Puramente informativo — nenhuma decisão de
  * autorização depende deste componente, sempre validada no servidor.
+ *
+ * Duas regras dão conta do hydration mismatch e do relógio do visitante:
+ *
+ * 1. O PRIMEIRO render (servidor e hidratação) usa `serverNowMs`, um
+ *    instante fixo vindo do Postgres. Como os dois lados calculam a partir
+ *    do mesmo número, o markup é idêntico e o React não reclama. A versão
+ *    anterior chamava `Date.now()` durante o render, então os segundos
+ *    divergiam pelo tempo entre gerar o HTML e hidratar.
+ *
+ * 2. Depois da hidratação, um efeito mede a diferença entre a hora do
+ *    servidor e a do navegador e passa a contar com `Date.now() + offset`.
+ *    Assim o cronômetro segue a hora do servidor mesmo em dispositivo com
+ *    relógio desregulado — e continua tudo local, sem nenhuma requisição
+ *    por segundo. O `serverNowMs` é reaproveitado do polling de 30s que já
+ *    existe, então a ressincronização é de graça.
  */
-export function Countdown({ label, targetIso }: { label: string; targetIso: string }) {
-  const [remaining, setRemaining] = useState(() => getRemaining(targetIso));
-  const [prevTargetIso, setPrevTargetIso] = useState(targetIso);
-
-  if (targetIso !== prevTargetIso) {
-    setPrevTargetIso(targetIso);
-    setRemaining(getRemaining(targetIso));
-  }
+export function Countdown({
+  label,
+  targetIso,
+  serverNowMs,
+}: {
+  label: string;
+  targetIso: string;
+  serverNowMs: number;
+}) {
+  // Primeiro render (servidor E hidratação): snapshot do servidor. Nenhuma
+  // leitura de relógio acontece durante o render — é isso que garante
+  // markup idêntico dos dois lados.
+  const [remaining, setRemaining] = useState(() => getRemaining(targetIso, serverNowMs));
 
   useEffect(() => {
-    const id = setInterval(() => setRemaining(getRemaining(targetIso)), 1000);
+    const offsetMs = serverNowMs - Date.now();
+    const update = () => setRemaining(getRemaining(targetIso, Date.now() + offsetMs));
+    // Corrige imediatamente o atraso entre gerar o HTML e hidratar.
+    update();
+    const id = setInterval(update, 1000);
     return () => clearInterval(id);
-  }, [targetIso]);
+  }, [targetIso, serverNowMs]);
 
   return (
     <div

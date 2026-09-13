@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, useTransition } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
@@ -8,7 +8,6 @@ import { Card } from "@/components/ui/Card";
 import { ConfirmationDialog } from "@/components/ui/ConfirmationDialog";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import {
-  BALLOT_DRAFT_STORAGE_KEY,
   NULL_OPTION_KEY,
   draftToPayload,
   getPositionTotal,
@@ -21,8 +20,14 @@ function subscribeNoop() {
   return () => {};
 }
 
-function getDraftSnapshot(): string | null {
-  return window.sessionStorage.getItem(BALLOT_DRAFT_STORAGE_KEY);
+function makeDraftSnapshotGetter(draftKey: string) {
+  return () => {
+    try {
+      return window.sessionStorage.getItem(draftKey);
+    } catch {
+      return null;
+    }
+  };
 }
 
 function getServerDraftSnapshot(): string | null {
@@ -32,11 +37,15 @@ function getServerDraftSnapshot(): string | null {
 export function VoteReview({
   positions,
   candidatesByPosition,
+  draftKey,
 }: {
   positions: WizardPosition[];
   candidatesByPosition: Record<string, WizardCandidate[]>;
+  /** Chave do rascunho, derivada da sessão de voto pelo servidor. */
+  draftKey: string;
 }) {
   const router = useRouter();
+  const getDraftSnapshot = useMemo(() => makeDraftSnapshotGetter(draftKey), [draftKey]);
   const rawDraft = useSyncExternalStore(subscribeNoop, getDraftSnapshot, getServerDraftSnapshot);
   const hydrated = typeof window !== "undefined";
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -74,7 +83,11 @@ export function VoteReview({
       setError(null);
       const result = await submitBallotAction(draftToPayload(draft!));
       if (result.success) {
-        window.sessionStorage.removeItem(BALLOT_DRAFT_STORAGE_KEY);
+        try {
+          window.sessionStorage.removeItem(draftKey);
+        } catch {
+          // sessionStorage indisponível: o voto já foi registrado, seguir.
+        }
         router.push("/voto-confirmado");
       } else {
         setError(result.error);

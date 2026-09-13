@@ -188,6 +188,38 @@ cache estático), nenhuma etapa extra de revalidação é necessária.
   leitura para `anon`/`authenticated`.
 - **Detalhes completos**: seções 4-15 de `docs/TECHNICAL_DESIGN.md`.
 
+## Notas de arquitetura (segundo deploy)
+
+**CSP difere entre ambientes.** Em desenvolvimento, `script-src` inclui
+`'unsafe-eval'`; em produção, não. Não é descuido: o Fast Refresh do
+Turbopack aplica hot updates via `eval`, e sem a diretiva toda edição de
+componente força recarga completa da página (perdendo, por exemplo, a
+distribuição de votos em andamento na urna). Em produção o bundle não
+contém `eval` algum — a sonda do React está atrás de um gate
+`"development"` —, então conceder a diretiva lá seria superfície de ataque
+sem contrapartida. Travado por teste (`tests/unit/csp.test.ts`); nonce,
+`strict-dynamic`, `frame-ancestors` e `object-src` são idênticos nos dois
+ambientes.
+
+**`vote_confirmed` é lido, não consumido.** A página `/voto-confirmado`
+apenas lê o cookie — Server Components não podem modificar cookies. O
+cookie expira sozinho em 5 minutos e é apagado quando um novo eleitor
+valida os dados. Na prática: recarregar ou voltar para a tela de sucesso
+funciona por alguns minutos. O cookie não autoriza nada eleitoral, só
+decide se a tela de confirmação aparece.
+
+**O rascunho da urna é isolado por sessão de voto.** A chave no
+`sessionStorage` inclui um identificador derivado da sessão, e rascunhos
+de outras sessões são apagados quando a urna abre. Isso existe para o
+dispositivo compartilhado: sem o isolamento, um eleitor que abandona a
+urna deixaria sua distribuição para o próximo, que a veria na tela e — se
+estivesse completa — poderia enviá-la como se fosse dele.
+
+**Rate limit da validação tem tetos distintos por dimensão.** Por IP,
+100 tentativas/5 min: a turma inteira costuma sair pelo mesmo IP público,
+e um teto baixo barraria eleitores legítimos em vez de atacantes. Por
+matrícula, 10/5 min — este é o controle anti-força-bruta que importa.
+
 ## Rotas
 
 Públicas: `/`, `/cargos`, `/candidatos`, `/votar`, `/votar/urna`,

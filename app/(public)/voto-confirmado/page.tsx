@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { consumeVoteConfirmedCookie } from "@/lib/election/vote-session";
+import { hasVoteConfirmedCookie } from "@/lib/election/vote-session";
 import { Button } from "@/components/ui/Button";
 
 export const metadata: Metadata = { title: "Voto confirmado" };
 export const dynamic = "force-dynamic";
 
 export default async function VotoConfirmadoPage() {
-  const confirmed = await consumeVoteConfirmedCookie();
+  const confirmed = await hasVoteConfirmedCookie();
   if (!confirmed) {
     redirect("/");
   }

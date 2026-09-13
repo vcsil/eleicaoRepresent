@@ -5,13 +5,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { VoteProgress } from "@/components/vote/VoteProgress";
 import { VoteDistributionCard, type DistributionOption } from "@/components/vote/VoteDistributionCard";
-import { BALLOT_DRAFT_STORAGE_KEY, NULL_OPTION_KEY, type BallotDraft } from "@/lib/vote/draft";
+import { NULL_OPTION_KEY, pruneOtherDrafts, type BallotDraft } from "@/lib/vote/draft";
 import type { WizardPosition, WizardCandidate } from "@/lib/election/ballot-options";
 
-function readStoredDraft(): BallotDraft | null {
+function readStoredDraft(draftKey: string): BallotDraft | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(BALLOT_DRAFT_STORAGE_KEY);
+    const raw = window.sessionStorage.getItem(draftKey);
     return raw ? (JSON.parse(raw) as BallotDraft) : null;
   } catch {
     return null;
@@ -21,9 +21,12 @@ function readStoredDraft(): BallotDraft | null {
 export function BallotWizard({
   positions,
   candidatesByPosition,
+  draftKey,
 }: {
   positions: WizardPosition[];
   candidatesByPosition: Record<string, WizardCandidate[]>;
+  /** Chave do rascunho, derivada da sessão de voto pelo servidor. */
+  draftKey: string;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -34,11 +37,27 @@ export function BallotWizard({
       ? requestedStep
       : 0,
   );
-  const [draft, setDraft] = useState<BallotDraft>(() => readStoredDraft() ?? {});
+  const [draft, setDraft] = useState<BallotDraft>(() => readStoredDraft(draftKey) ?? {});
+
+  // Remove rascunhos de outras sessões assim que a urna abre: em
+  // dispositivo compartilhado, a distribuição de quem votou antes não pode
+  // continuar guardada aqui.
+  useEffect(() => {
+    try {
+      pruneOtherDrafts(window.sessionStorage, draftKey);
+    } catch {
+      // sessionStorage indisponível (modo privado restrito): a urna segue
+      // funcionando, só não persiste o rascunho.
+    }
+  }, [draftKey]);
 
   useEffect(() => {
-    window.sessionStorage.setItem(BALLOT_DRAFT_STORAGE_KEY, JSON.stringify(draft));
-  }, [draft]);
+    try {
+      window.sessionStorage.setItem(draftKey, JSON.stringify(draft));
+    } catch {
+      // idem
+    }
+  }, [draft, draftKey]);
 
   const position = positions[stepIndex];
   const candidates = candidatesByPosition[position.id] ?? [];
