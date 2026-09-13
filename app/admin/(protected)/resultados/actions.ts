@@ -37,6 +37,10 @@ export async function publishResultsAction(
   updateTag(CACHE_TAGS.publishedResults);
   updateTag(CACHE_TAGS.publicElection);
   revalidatePath("/admin/resultados");
+  // Publicar um desempate resolve o empate do pai na mesma transação: a
+  // pendência some da lista e o card vira "concluído".
+  revalidatePath("/admin/desempates");
+  revalidatePath("/admin/desempates/[runoffId]", "page");
   revalidatePath("/resultados");
   revalidatePath("/");
   return { error: null };

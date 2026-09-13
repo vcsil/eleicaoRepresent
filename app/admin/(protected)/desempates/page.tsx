@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { getMainElection } from "@/lib/election/status";
 import {
   getPendingTies,
@@ -98,10 +99,16 @@ export default async function AdminDesempatesPage() {
                 )}
                 {r.stage === "apurado" && (
                   <p className="mt-2 text-xs text-foreground-muted">
-                    Publique esta votação em /admin/resultados: é isso que resolve o empate da
-                    eleição principal e libera a publicação dela.
+                    Publique esta votação na página dela: é isso que resolve o empate da eleição
+                    principal e libera a publicação dela.
                   </p>
                 )}
+                <Link
+                  href={`/admin/desempates/${r.id}`}
+                  className="mt-3 inline-block text-xs font-medium text-primary hover:underline"
+                >
+                  Gerenciar votação de desempate →
+                </Link>
               </Card>
             ))}
           </div>

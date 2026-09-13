@@ -29,6 +29,10 @@ export async function closeVotingAction(
   // voting_closed_manually_at faz parte da linha cacheada da eleição.
   updateTag(CACHE_TAGS.publicElection);
   revalidatePath("/admin/votacao");
+  // A mesma action encerra a eleição geral e os desempates: o painel de
+  // desempates e a página do desempate refletem o encerramento na hora.
+  revalidatePath("/admin/desempates");
+  revalidatePath("/admin/desempates/[runoffId]", "page");
   revalidatePath("/");
   return { error: null };
 }
@@ -56,5 +60,6 @@ export async function computeResultsAction(
   revalidatePath("/admin/votacao");
   revalidatePath("/admin/resultados");
   revalidatePath("/admin/desempates");
+  revalidatePath("/admin/desempates/[runoffId]", "page");
   return { error: null };
 }

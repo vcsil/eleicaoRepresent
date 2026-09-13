@@ -651,3 +651,94 @@ describe("permissões das funções novas", () => {
     });
   }
 });
+
+/**
+ * O painel administrativo do desempate liga e desliga os botões a partir do
+ * status autoritativo. Se a sequência de status mudar, a interface
+ * silenciosamente deixa de oferecer "Encerrar votação" ou "Iniciar
+ * apuração" — que foi exatamente o defeito encontrado na simulação.
+ */
+describe("status que dirige o painel do desempate", () => {
+  async function statusOf(electionId: string): Promise<string> {
+    const rows = await q("select compute_election_status($1) as status", [electionId]);
+    return rows[0].status as string;
+  }
+
+  it("percorre votacao_desempate -> em_apuracao -> aguardando_divulgacao -> resultado_disponivel", async () => {
+    const base = await setupTiedElection();
+    const runoffId = await createRunoff(base.electionId, [base.position.id]);
+
+    // Votação aberta: é o status que habilita "Encerrar votação".
+    expect(await statusOf(runoffId)).toBe("votacao_desempate");
+
+    for (let i = 0; i < 5; i += 1) {
+      await voteAs(
+        runoffId,
+        base.voters[i].registrationNumber,
+        `Eleitor ${i + 1}`,
+        singleChoice(base.position.id, i < 3 ? base.ana : base.bruno),
+      );
+    }
+
+    // Um desempate NUNCA passa por 'votacao_encerrada': vai direto para
+    // em_apuracao, que é o status que habilita "Iniciar apuração".
+    await closeVoting(runoffId);
+    expect(await statusOf(runoffId)).toBe("em_apuracao");
+
+    await computeResults(runoffId);
+    expect(await statusOf(runoffId)).toBe("aguardando_divulgacao");
+
+    await publishResults(runoffId);
+    expect(await statusOf(runoffId)).toBe("resultado_disponivel");
+  });
+
+  it("100% de participação é medida no desempate, não na eleição geral", async () => {
+    const base = await setupTiedElection();
+    const runoffId = await createRunoff(base.electionId, [base.position.id]);
+    for (let i = 0; i < 5; i += 1) {
+      await voteAs(
+        runoffId,
+        base.voters[i].registrationNumber,
+        `Eleitor ${i + 1}`,
+        singleChoice(base.position.id, i < 3 ? base.ana : base.bruno),
+      );
+    }
+    const rows = await q("select get_participation_percentage($1) as p", [runoffId]);
+    expect(Number(rows[0].p)).toBe(100);
+  });
+
+  it("publicar o desempate NÃO publica a eleição principal", async () => {
+    const base = await setupTiedElection();
+    const runoffId = await createRunoff(base.electionId, [base.position.id]);
+    for (let i = 0; i < 5; i += 1) {
+      await voteAs(
+        runoffId,
+        base.voters[i].registrationNumber,
+        `Eleitor ${i + 1}`,
+        singleChoice(base.position.id, i < 3 ? base.ana : base.bruno),
+      );
+    }
+    await closeVoting(runoffId);
+    await computeResults(runoffId);
+    await publishResults(runoffId);
+
+    // Âncora: sem isto o teste passaria mesmo que nada tivesse sido publicado.
+    const [desempate] = await q("select results_published_at from elections where id = $1", [
+      runoffId,
+    ]);
+    expect(desempate.results_published_at).not.toBeNull();
+
+    const [pai] = await q("select results_published_at from elections where id = $1", [
+      base.electionId,
+    ]);
+    // O empate foi resolvido, mas a liberação dos resultados gerais continua
+    // sendo uma decisão explícita do administrador.
+    expect(pai.results_published_at).toBeNull();
+
+    const [publicacoes] = await q(
+      "select count(*)::int as total from result_publications where election_id = $1",
+      [base.electionId],
+    );
+    expect(publicacoes.total).toBe(0);
+  });
+});

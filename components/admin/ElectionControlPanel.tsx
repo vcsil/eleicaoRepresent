@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmationDialog } from "@/components/ui/ConfirmationDialog";
 import { closeVotingAction, computeResultsAction } from "@/app/admin/(protected)/votacao/actions";
-import type { ElectionStatus } from "@/lib/election/status";
+import { isVotingOpen, type ElectionStatus } from "@/lib/election/status-values";
 
 export function ElectionControlPanel({
   electionId,
@@ -17,7 +17,13 @@ export function ElectionControlPanel({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const canClose = status === "votacao_em_andamento";
+  // Usa o predicado do projeto em vez de comparar strings: vale para a
+  // eleição geral (`votacao_em_andamento`) e para o desempate
+  // (`votacao_desempate`), sem duplicar o vocabulário.
+  const canClose = isVotingOpen(status);
+  // Um desempate nunca passa por `votacao_encerrada`: o ciclo dele é
+  // votacao_desempate -> em_apuracao -> aguardando_divulgacao
+  // (compute_election_status, migration 0010). `em_apuracao` já cobre os dois.
   const canCompute = status === "votacao_encerrada" || status === "em_apuracao";
 
   function run(action: "close" | "compute") {
