@@ -14,8 +14,17 @@ export default function Loading() {
 
       <section className="mt-12">
         <h2 className="text-sm font-semibold text-foreground">Lista atual</h2>
+        {/* Barra de pesquisa, tabela e paginação nas mesmas caixas do real. */}
+        <Skeleton className="mt-3 h-10 w-full rounded-md" />
         <div className="mt-3">
-          <RowsSkeleton rows={8} />
+          <RowsSkeleton rows={8} withBadge />
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <Skeleton className="h-5 w-28" />
+          <span className="flex shrink-0 gap-2">
+            <Skeleton className="h-8 w-24 rounded-md" />
+            <Skeleton className="h-8 w-24 rounded-md" />
+          </span>
         </div>
       </section>
     </div>
