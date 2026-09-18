@@ -354,21 +354,93 @@ Administrativas (autenticação por senha única, sessão HttpOnly):
 
 ## Limitações conhecidas / próximos passos
 
-- Cargos, candidatos e cronograma são servidos do Data Cache e só são
-  invalidados por ações do painel. **Se você alterar esses dados direto no
-  banco** (SQL Editor do Supabase, `psql`), clique em "Atualizar dados do
-  site" em `/admin/dashboard` — senão o site continua mostrando o valor
-  antigo. Detalhes em [`docs/PERFORMANCE_V2.md`](docs/PERFORMANCE_V2.md).
-- Autenticação administrativa por senha única está desenhada para migrar
-  no futuro para Supabase Auth com contas individuais (seção 62 do
-  documento técnico) — não implementado nesta fase, por decisão explícita.
-- A camada de auditoria (`audit_vote_links`) está isolada estruturalmente,
-  mas a criptografia adicional/credencial de acesso excepcional citada na
-  seção 44 ainda não foi implementada — é evolução futura documentada, não
-  parte do escopo atual.
-- Votação de desempate reaproveita o mesmo fluxo de urna/validação, mas a
-  interface pública de `/votar` hoje assume a eleição geral; votar em um
-  desempate específico usa a mesma função `cast_ballot`/`validate_voter`
-  no backend, porém a tela de urna não distingue múltiplas eleições
-  simultâneas na UI — outra iteração validaria isso end-to-end com um
-  projeto Supabase real.
+Esta lista reflete o estado do código no HEAD, não o histórico do projeto.
+Os dois itens de "Antes da eleição" foram reproduzidos contra o Postgres —
+não são hipóteses.
+
+### Antes da eleição
+
+**[P0] Dois desempates abertos ao mesmo tempo derrubam `/votar`**
+`create_runoff_election` recusa um segundo desempate para o MESMO cargo,
+mas não verifica se a janela de votação se sobrepõe à de um desempate de
+outro cargo. Com dois abertos, `get_current_voting_election()` levanta
+`AMBIGUOUS_ACTIVE_ELECTION` e a página de votação falha para todos os
+eleitores, não apenas para os cargos em disputa. O caminho é o natural da
+tela: `/admin/desempates` mostra um formulário por cargo empatado, cada um
+com suas próprias datas. Próximo passo: recusar janela sobreposta na
+criação, ou reunir os empates pendentes num único desempate multi-cargo —
+a função já aceita vários cargos (`p_position_ids`), só a interface não
+usa.
+
+**[P0] Promoção por cargo duplo pode eleger alguém em dois cargos**
+Ao resolver um candidato eleito em dois cargos,
+`resolve_dual_winner_decision` promove o próximo colocado mas não reavalia a
+regra. Se o promovido já estiver eleito em outro cargo, nenhuma decisão nova
+é criada — quem as cria é `compute_results`, que não roda de novo — e
+`publish_results` publica sem bloquear. Cenário reproduzido: Y, eleito em A
+e C, opta por C; X é promovido em A e termina eleito em A e B. Próximo
+passo: reavaliar cargo duplo ao final da resolução e cobrir o caso em teste
+— os três testes atuais não incluem cascata.
+
+### Melhorias importantes
+
+**[P1] Sem integração contínua**
+Não há `.github/workflows`. `npm test`, `npm run test:integration`,
+`npm run lint`, `npx tsc --noEmit` e `npm run build` só rodam quando
+alguém lembra. Todos passam no HEAD (351 testes).
+
+**[P1] Documentação de operação defasada**
+[`docs/DEPLOY_V2.md`](docs/DEPLOY_V2.md) descreve o deploy da migration
+`0012` e fala em "migrations já aplicadas (0001–0011)"; o repositório está
+na `0018`. [`docs/TECHNICAL_DESIGN.md`](docs/TECHNICAL_DESIGN.md) ainda
+lista a interface de votação de desempate como pendente, embora ela exista.
+Não há procedimento documentado de backup e restauração do banco.
+
+### Limitações conhecidas
+
+**[P2] Cache invalidado apenas por ações do painel**
+Cargos, candidatos e cronograma são servidos do Data Cache. **Se você
+alterar esses dados direto no banco** (SQL Editor do Supabase, `psql`),
+clique em "Atualizar dados do site" em `/admin/dashboard` — senão o site
+continua mostrando o valor antigo. Detalhes em
+[`docs/PERFORMANCE_V2.md`](docs/PERFORMANCE_V2.md).
+
+**[P2] A aplicação assume uma única eleição geral**
+`getMainElection()` e `get_current_voting_election()` selecionam `type =
+'general'` pela data de criação mais antiga, e não existe ação de finalizar
+ou cancelar uma eleição. Uma segunda eleição geral não assumiria o lugar da
+primeira. Desempates encadeados funcionam normalmente — a limitação é sobre
+pleitos distintos ao longo do tempo.
+
+**[P2] Participação histórica acompanha o cadastro atual**
+`get_participation_percentage` divide pelo número de eleitores ativos no
+momento da consulta. Importar ou inativar eleitores muda o percentual
+exibido de uma eleição já encerrada.
+
+**[P2] `voters.has_voted` e `voters.voted_at` não são usados**
+São gravados por `cast_ballot`, mas nenhuma consulta os lê: a garantia de
+voto único é `audit_vote_links unique (election_id, voter_id)`. Também não
+têm significado claro com desempates — o eleitor vota na geral e no
+desempate, e `voted_at` é sobrescrito. São colunas enganosas para quem
+inspecionar o banco diretamente.
+
+**[P2] Versão do Node não fixada**
+Sem `engines`, `.nvmrc` ou `.node-version`. Desenvolvido em Node 22.
+
+### Evoluções futuras
+
+**[P3] Contas administrativas individuais**
+A autenticação por senha única está desenhada para migrar para Supabase
+Auth com contas individuais (seção 62 do documento técnico) — não
+implementado nesta fase, por decisão explícita.
+
+**[P3] Criptografia da camada de auditoria**
+`audit_vote_links` está isolada por RLS e sem nenhum GRANT para
+`anon`/`authenticated`, mas a criptografia adicional e a credencial de
+acesso excepcional citadas na seção 44 não foram implementadas.
+
+**[P3] `exceljs` no pacote do navegador**
+A pré-visualização da importação roda no cliente, então o `exceljs`
+(~912 KB) é baixado ao selecionar um arquivo `.xlsx`. O carregamento é sob
+demanda e só na rota administrativa; o arquivo é reprocessado no servidor
+de qualquer forma.
