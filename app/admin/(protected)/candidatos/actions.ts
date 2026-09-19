@@ -9,6 +9,11 @@ import { uploadCandidatePhoto, deleteCandidatePhoto, PhotoUploadError } from "@/
 import { logAdminAction } from "@/lib/admin/audit-log";
 import { requireAdminSession } from "@/lib/admin/session";
 import { canonicalYouTubeUrl } from "@/lib/media/youtube";
+import {
+  storeYouTubeThumbnail,
+  deleteYouTubeThumbnail,
+  sameVideo,
+} from "@/lib/admin/youtube-thumbnail";
 
 export type CandidateFormState = { error: string | null };
 
@@ -80,21 +85,47 @@ export async function upsertCandidateAction(
 
   let candidateId = parsed.data.id;
   let previousPhotoPath: string | null = null;
+  let previousVideoUrl: string | null = null;
+  let videoChanged = false;
 
   if (candidateId) {
     const { data: existing } = await supabase
       .from("candidates")
-      .select("photo_path")
+      .select("photo_path, video_url")
       .eq("id", candidateId)
       .maybeSingle();
     previousPhotoPath = existing?.photo_path ?? null;
+    previousVideoUrl = existing?.video_url ?? null;
+
+    // O vídeo mudou? A comparação é pelo ID normalizado: trocar
+    // youtu.be/ID por watch?v=ID é o MESMO vídeo e não pode disparar um
+    // novo download nem apagar a capa existente.
+    videoChanged = !sameVideo(previousVideoUrl, record.video_url);
+
+    // Capa nova ANTES do banco: se o upload falhar, o candidato ainda é
+    // salvo e o player usa o placeholder. Se o banco falhar depois, a capa
+    // órfã é removida logo abaixo, por compensação.
+    if (videoChanged && record.video_url) {
+      await storeYouTubeThumbnail(candidateId, record.video_url);
+    }
 
     const { error } = await supabase.from("candidates").update(record).eq("id", candidateId);
-    if (error) return { error: "Não foi possível salvar o candidato." };
+    if (error) {
+      if (videoChanged && record.video_url) {
+        await deleteYouTubeThumbnail(candidateId, record.video_url);
+      }
+      return { error: "Não foi possível salvar o candidato." };
+    }
   } else {
     const { data, error } = await supabase.from("candidates").insert(record).select("id").single();
     if (error || !data) return { error: "Não foi possível criar o candidato." };
-    candidateId = data.id;
+    const novoId = data.id as string;
+    candidateId = novoId;
+
+    // Na criação o id só existe depois do insert, então a capa vem em
+    // seguida. Falhar aqui não desfaz o candidato: ele fica com o vídeo e
+    // com o placeholder.
+    if (record.video_url) await storeYouTubeThumbnail(novoId, record.video_url);
   }
 
   await supabase.from("candidate_positions").delete().eq("candidate_id", candidateId);
@@ -104,6 +135,13 @@ export async function upsertCandidateAction(
 
   if (positionsError) {
     return { error: "Não foi possível salvar os cargos do candidato (máximo 2)." };
+  }
+
+  // Só agora, com o banco confirmado: a tela já aponta para a capa nova (o
+  // caminho é derivado do vídeo atual), então isto é coleta de lixo — falhar
+  // deixa um arquivo órfão, nunca uma capa errada em exibição.
+  if (videoChanged && previousVideoUrl && candidateId) {
+    await deleteYouTubeThumbnail(candidateId, previousVideoUrl);
   }
 
   if (photoPath && previousPhotoPath) {

@@ -109,3 +109,29 @@ export function canonicalYouTubeUrl(input: string | null | undefined): string | 
     ? `https://www.youtube.com/shorts/${video.videoId}`
     : `https://www.youtube.com/watch?v=${video.videoId}`;
 }
+
+/**
+ * Caminho da thumbnail local no bucket `candidate-photos`.
+ *
+ * DERIVADO de (candidateId, videoId), nunca guardado no banco. Isso tem uma
+ * consequência que vale registrar: se a linha do candidato diz vídeo B, o
+ * caminho calculado é o de B. A capa de A não é referenciada nunca mais,
+ * tenha a limpeza funcionado ou não — o estado "banco aponta para B mas a
+ * tela mostra a capa de A" é impossível por construção, não por cuidado.
+ *
+ * Incluir o videoId também resolve cache: trocar de vídeo troca a URL, então
+ * CDN e navegador não servem a capa antiga.
+ */
+export function youtubeThumbnailPath(candidateId: string, videoId: string): string {
+  return `video-thumbnails/${candidateId}/${videoId}.jpg`;
+}
+
+/** Caminho da thumbnail a partir da URL gravada, ou null se não houver vídeo. */
+export function youtubeThumbnailPathFor(
+  candidateId: string | null | undefined,
+  videoUrl: string | null | undefined,
+): string | null {
+  if (!candidateId) return null;
+  const video = parseYouTubeUrl(videoUrl);
+  return video ? youtubeThumbnailPath(candidateId, video.videoId) : null;
+}
