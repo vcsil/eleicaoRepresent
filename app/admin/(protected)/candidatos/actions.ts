@@ -10,7 +10,7 @@ import { logAdminAction } from "@/lib/admin/audit-log";
 import { requireAdminSession } from "@/lib/admin/session";
 import { canonicalYouTubeUrl } from "@/lib/media/youtube";
 import {
-  storeYouTubeThumbnail,
+  ensureYouTubeThumbnail,
   deleteYouTubeThumbnail,
   sameVideo,
 } from "@/lib/admin/youtube-thumbnail";
@@ -87,6 +87,8 @@ export async function upsertCandidateAction(
   let previousPhotoPath: string | null = null;
   let previousVideoUrl: string | null = null;
   let videoChanged = false;
+  // Só a capa que ESTA gravação criou pode ser desfeita por compensação.
+  let capaCriadaAgora = false;
 
   if (candidateId) {
     const { data: existing } = await supabase
@@ -102,16 +104,22 @@ export async function upsertCandidateAction(
     // novo download nem apagar a capa existente.
     videoChanged = !sameVideo(previousVideoUrl, record.video_url);
 
-    // Capa nova ANTES do banco: se o upload falhar, o candidato ainda é
-    // salvo e o player usa o placeholder. Se o banco falhar depois, a capa
-    // órfã é removida logo abaixo, por compensação.
-    if (videoChanged && record.video_url) {
-      await storeYouTubeThumbnail(candidateId, record.video_url);
+    // Capa ANTES do banco: se falhar, o candidato ainda é salvo e o player
+    // usa o placeholder. Se o banco falhar depois, a capa órfã é removida
+    // por compensação — mas só se tiver sido criada agora.
+    //
+    // Chamado em TODA gravação com vídeo, não só quando o vídeo muda: é o
+    // que dá capa a candidatos cadastrados antes desta funcionalidade e o
+    // que permite uma nova tentativa depois de uma falha transitória.
+    // Quando a capa já está lá, isto custa uma listagem e nenhum fetch.
+    if (record.video_url) {
+      const capa = await ensureYouTubeThumbnail(candidateId, record.video_url);
+      capaCriadaAgora = capa.stored && capa.created;
     }
 
     const { error } = await supabase.from("candidates").update(record).eq("id", candidateId);
     if (error) {
-      if (videoChanged && record.video_url) {
+      if (capaCriadaAgora && record.video_url) {
         await deleteYouTubeThumbnail(candidateId, record.video_url);
       }
       return { error: "Não foi possível salvar o candidato." };
@@ -124,8 +132,8 @@ export async function upsertCandidateAction(
 
     // Na criação o id só existe depois do insert, então a capa vem em
     // seguida. Falhar aqui não desfaz o candidato: ele fica com o vídeo e
-    // com o placeholder.
-    if (record.video_url) await storeYouTubeThumbnail(novoId, record.video_url);
+    // com o placeholder, e a próxima gravação tenta de novo.
+    if (record.video_url) await ensureYouTubeThumbnail(novoId, record.video_url);
   }
 
   await supabase.from("candidate_positions").delete().eq("candidate_id", candidateId);

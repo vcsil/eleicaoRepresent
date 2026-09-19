@@ -16,7 +16,17 @@ const BUCKET = "candidate-photos";
 /** Tamanhos que o YouTube publica por vídeo, do melhor para o aceitável. */
 const QUALIDADES = ["maxresdefault", "hqdefault"] as const;
 
-const TIMEOUT_MS = 8_000;
+/**
+ * Orçamento TOTAL da busca, não por tentativa.
+ *
+ * Com 8s por qualidade o pior caso era ~16s (maxres pendura, hq pendura) —
+ * tempo demais segurando o administrador numa Server Action. O relógio agora
+ * é compartilhado: cada tentativa recebe o que sobrou, até o teto individual.
+ * O fallback não é sacrificado, porque a falha comum de maxresdefault é um
+ * 404 rápido, não um travamento — o orçamento só aperta no caso raro.
+ */
+const BUDGET_TOTAL_MS = 8_000;
+const TIMEOUT_POR_TENTATIVA_MS = 5_000;
 
 /** Uma capa real passa disso com folga; a imagem cinza de "sem maxres" não. */
 const MIN_BYTES = 4 * 1024;
@@ -25,7 +35,9 @@ const MIN_BYTES = 4 * 1024;
 const MAX_BYTES = 2 * 1024 * 1024;
 
 export type ThumbnailOutcome =
-  | { stored: true; path: string }
+  /** `created` distingue "acabei de gravar" de "já estava lá" — é o que diz
+   *  se uma compensação pode apagar o arquivo sem destruir capa alheia. */
+  | { stored: true; path: string; created: boolean }
   | { stored: false; reason: string };
 
 /**
@@ -40,13 +52,19 @@ function thumbnailSourceUrl(videoId: string, qualidade: string): string {
 }
 
 async function baixarCapa(videoId: string): Promise<Buffer | null> {
+  const prazoFinal = Date.now() + BUDGET_TOTAL_MS;
+
   for (const qualidade of QUALIDADES) {
+    const restante = prazoFinal - Date.now();
+    // Sem tempo útil sobrando, tentar de novo só adiaria a resposta.
+    if (restante <= 0) break;
+
     let resposta: Response;
     try {
       resposta = await fetch(thumbnailSourceUrl(videoId, qualidade), {
         // Um redirect vira falha em vez de levar o fetch a outro host.
         redirect: "manual",
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: AbortSignal.timeout(Math.min(TIMEOUT_POR_TENTATIVA_MS, restante)),
         headers: { accept: "image/jpeg,image/*" },
       });
     } catch {
@@ -112,7 +130,62 @@ export async function storeYouTubeThumbnail(
     return { stored: false, reason: "upload falhou" };
   }
 
-  return { stored: true, path };
+  return { stored: true, path, created: true };
+}
+
+/**
+ * Existe o objeto derivado no Storage?
+ *
+ * Uma listagem de metadados, não um download: custa pouco e é o que permite
+ * chamar `ensureYouTubeThumbnail` em toda gravação sem baixar nada à toa.
+ */
+async function thumbnailJaExiste(path: string): Promise<boolean> {
+  const barra = path.lastIndexOf("/");
+  const pasta = path.slice(0, barra);
+  const arquivo = path.slice(barra + 1);
+
+  const supabase = createServiceClient();
+  const { data, error } = await supabase.storage.from(BUCKET).list(pasta, {
+    search: arquivo,
+    limit: 100,
+  });
+
+  if (error) {
+    // Na dúvida, assume que não existe: baixar de novo é desperdício
+    // recuperável, deixar o candidato sem capa para sempre não é.
+    console.error("youtube thumbnail: listagem falhou", { path, error });
+    return false;
+  }
+
+  // `search` no Supabase é prefixo, não igualdade — daí a conferência exata.
+  return (data ?? []).some((objeto) => objeto.name === arquivo);
+}
+
+/**
+ * Garante que a capa exista, baixando só quando faltar.
+ *
+ * Existe porque `sameVideo` sozinho não bastava: candidatos cadastrados
+ * ANTES desta funcionalidade nunca teriam capa, e uma falha transitória no
+ * primeiro download ficaria permanente — salvar o mesmo vídeo de novo não
+ * tentava outra vez. A pergunta certa não é "o vídeo mudou?", é "a capa
+ * está lá?".
+ *
+ * A regra de não baixar à toa continua valendo: com a capa presente, o
+ * custo é uma listagem de metadados e nenhum fetch ao YouTube.
+ */
+export async function ensureYouTubeThumbnail(
+  candidateId: string,
+  videoUrl: string,
+): Promise<ThumbnailOutcome> {
+  const video = parseYouTubeUrl(videoUrl);
+  if (!video) return { stored: false, reason: "URL não reconhecida" };
+
+  const path = youtubeThumbnailPath(candidateId, video.videoId);
+  if (await thumbnailJaExiste(path)) {
+    return { stored: true, path, created: false };
+  }
+
+  return storeYouTubeThumbnail(candidateId, videoUrl);
 }
 
 /** Remove a capa de um vídeo específico. Best-effort: só registra a falha. */

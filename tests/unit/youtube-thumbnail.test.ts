@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -12,7 +13,11 @@ const CANDIDATO = "11111111-1111-4111-8111-111111111111";
 
 const uploads: { path: string; contentType: string; bytes: number }[] = [];
 const removals: string[][] = [];
+const listagens: { pasta: string; busca: string | undefined }[] = [];
 let uploadError: unknown = null;
+/** Objetos que o Storage "já tem". */
+let existentes: string[] = [];
+let listError: unknown = null;
 
 vi.mock("@/lib/supabase/service", () => ({
   createServiceClient: () => ({
@@ -26,14 +31,21 @@ vi.mock("@/lib/supabase/service", () => ({
           removals.push(paths);
           return { error: null };
         },
+        list: async (pasta: string, opts: { search?: string }) => {
+          listagens.push({ pasta, busca: opts?.search });
+          if (listError) return { data: null, error: listError };
+          const nomes = existentes
+            .filter((caminho) => caminho.startsWith(`${pasta}/`))
+            .map((caminho) => caminho.slice(pasta.length + 1));
+          return { data: nomes.map((name) => ({ name })), error: null };
+        },
       }),
     },
   }),
 }));
 
-const { storeYouTubeThumbnail, deleteYouTubeThumbnail, sameVideo } = await import(
-  "@/lib/admin/youtube-thumbnail"
-);
+const { storeYouTubeThumbnail, ensureYouTubeThumbnail, deleteYouTubeThumbnail, sameVideo } =
+  await import("@/lib/admin/youtube-thumbnail");
 
 type Resposta = { status: number; type?: string; bytes?: number; erro?: boolean };
 
@@ -65,7 +77,10 @@ beforeEach(() => {
   removals.length = 0;
   pedidos.length = 0;
   opcoesUsadas.length = 0;
+  listagens.length = 0;
+  existentes = [];
   uploadError = null;
+  listError = null;
   vi.unstubAllGlobals();
 });
 
@@ -106,7 +121,7 @@ describe("fallback de qualidade", () => {
   it("usa maxresdefault quando existe", async () => {
     responder([capaValida]);
     const r = await storeYouTubeThumbnail(CANDIDATO, `https://youtu.be/${ID}`);
-    expect(r).toEqual({ stored: true, path: `video-thumbnails/${CANDIDATO}/${ID}.jpg` });
+    expect(r).toEqual({ stored: true, path: `video-thumbnails/${CANDIDATO}/${ID}.jpg`, created: true });
     expect(pedidos).toEqual([`https://i.ytimg.com/vi/${ID}/maxresdefault.jpg`]);
   });
 
@@ -171,6 +186,135 @@ describe("validação do arquivo", () => {
     uploadError = { message: "storage fora do ar" };
     const r = await storeYouTubeThumbnail(CANDIDATO, `https://youtu.be/${ID}`);
     expect(r).toEqual({ stored: false, reason: "upload falhou" });
+  });
+});
+
+describe("recuperação: a capa existe ou é gerada", () => {
+  const CAMINHO = `video-thumbnails/${CANDIDATO}/${ID}.jpg`;
+
+  it("candidato ANTIGO, com vídeo e sem capa, ganha a capa mesmo sem o vídeo mudar", async () => {
+    // Cadastrado antes desta funcionalidade: nunca passou por um "vídeo
+    // mudou". Sem o ensure, ficaria no placeholder para sempre.
+    responder([capaValida]);
+    const r = await ensureYouTubeThumbnail(CANDIDATO, `https://youtu.be/${ID}`);
+
+    expect(r).toEqual({ stored: true, path: CAMINHO, created: true });
+    expect(uploads).toHaveLength(1);
+  });
+
+  it("capa já presente: nenhum fetch ao YouTube", async () => {
+    responder([capaValida]);
+    existentes = [CAMINHO];
+
+    const r = await ensureYouTubeThumbnail(CANDIDATO, `https://youtu.be/${ID}`);
+
+    expect(r).toEqual({ stored: true, path: CAMINHO, created: false });
+    // A regra de não baixar à toa continua valendo: custou uma listagem.
+    expect(pedidos).toHaveLength(0);
+    expect(uploads).toHaveLength(0);
+    expect(listagens).toHaveLength(1);
+  });
+
+  it("nova tentativa depois de uma falha anterior, com o MESMO vídeo", async () => {
+    // Primeira gravação: o YouTube estava fora e nada foi armazenado.
+    responder([{ status: 500 }, { status: 500 }]);
+    expect(await ensureYouTubeThumbnail(CANDIDATO, `https://youtu.be/${ID}`)).toMatchObject({
+      stored: false,
+    });
+    expect(uploads).toHaveLength(0);
+
+    // Segunda gravação do mesmo candidato, mesmo vídeo: tenta de novo.
+    pedidos.length = 0;
+    responder([capaValida]);
+    expect(await ensureYouTubeThumbnail(CANDIDATO, `https://youtu.be/${ID}`)).toMatchObject({
+      stored: true,
+      created: true,
+    });
+    expect(uploads).toHaveLength(1);
+  });
+
+  it("a listagem procura o arquivo exato na pasta do candidato", async () => {
+    responder([capaValida]);
+    await ensureYouTubeThumbnail(CANDIDATO, `https://youtu.be/${ID}`);
+    expect(listagens[0]).toEqual({
+      pasta: `video-thumbnails/${CANDIDATO}`,
+      busca: `${ID}.jpg`,
+    });
+  });
+
+  it("outro arquivo na mesma pasta não conta como a capa deste vídeo", async () => {
+    // `search` do Supabase é prefixo, não igualdade.
+    responder([capaValida]);
+    existentes = [`video-thumbnails/${CANDIDATO}/ZZZZZZZZZZZ.jpg`];
+
+    expect(await ensureYouTubeThumbnail(CANDIDATO, `https://youtu.be/${ID}`)).toMatchObject({
+      created: true,
+    });
+    expect(uploads).toHaveLength(1);
+  });
+
+  it("listagem indisponível: BAIXA em vez de supor que a capa existe", async () => {
+    // Baixar de novo é desperdício recuperável; supor que existe deixaria o
+    // candidato sem capa para sempre. `stored: true` sozinho não distingue
+    // os dois casos — o que prova a diferença é ter havido fetch e upload.
+    responder([capaValida]);
+    listError = { message: "storage instável" };
+
+    const r = await ensureYouTubeThumbnail(CANDIDATO, `https://youtu.be/${ID}`);
+
+    expect(r).toMatchObject({ stored: true, created: true });
+    expect(pedidos).toHaveLength(1);
+    expect(uploads).toHaveLength(1);
+  });
+
+  it("URL irreconhecível nem chega a listar", async () => {
+    responder([capaValida]);
+    expect(await ensureYouTubeThumbnail(CANDIDATO, "https://vimeo.com/1")).toMatchObject({
+      stored: false,
+    });
+    expect(listagens).toHaveLength(0);
+    expect(pedidos).toHaveLength(0);
+  });
+});
+
+describe("orçamento de tempo", () => {
+  it("o prazo é TOTAL, não por tentativa", async () => {
+    responder([{ status: 404 }, capaValida]);
+    await storeYouTubeThumbnail(CANDIDATO, `https://youtu.be/${ID}`);
+
+    const [primeiro, segundo] = opcoesUsadas.map((o) => o.signal as AbortSignal);
+    expect(primeiro).toBeInstanceOf(AbortSignal);
+    expect(segundo).toBeInstanceOf(AbortSignal);
+    // Duas tentativas de 5s dariam 10s; o teto total é 8s, então a segunda
+    // recebe o que sobrou — é isso que derruba o pior caso de ~16s.
+    const fonte = readFileSync(
+      new URL("../../lib/admin/youtube-thumbnail.ts", import.meta.url),
+      "utf8",
+    );
+    expect(fonte).toContain("BUDGET_TOTAL_MS");
+    expect(fonte).toContain("Math.min(TIMEOUT_POR_TENTATIVA_MS, restante)");
+  });
+
+  it("sem tempo restante, não inicia outra tentativa", async () => {
+    // Primeira tentativa consome todo o orçamento.
+    let primeira = true;
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      pedidos.push(String(url));
+      opcoesUsadas.push(init ?? {});
+      if (primeira) {
+        primeira = false;
+        await new Promise((r) => setTimeout(r, 30));
+        vi.setSystemTime(Date.now() + 9_000);
+        throw new Error("timeout");
+      }
+      throw new Error("não deveria chegar aqui");
+    });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    await storeYouTubeThumbnail(CANDIDATO, `https://youtu.be/${ID}`);
+    expect(pedidos).toHaveLength(1);
+
+    vi.useRealTimers();
   });
 });
 
