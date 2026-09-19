@@ -37,6 +37,46 @@ export async function closeVotingAction(
   return { error: null };
 }
 
+/**
+ * Abre a votação. IRREVERSÍVEL: não existe ação para desfazer, e
+ * `release_voting` nunca devolve `voting_released_at` a nulo.
+ *
+ * Quem decide é o Postgres — janela configurada, hora inicial já vencida,
+ * eleição geral, ainda não encerrada. Aqui só traduzimos a recusa.
+ */
+export async function releaseVotingAction(
+  _prevState: ElectionControlState,
+  formData: FormData,
+): Promise<ElectionControlState> {
+  await requireAdminSession();
+  const electionId = formData.get("election_id");
+  if (typeof electionId !== "string") return { error: "Eleição inválida." };
+
+  const supabase = createServiceClient();
+  const { error } = await supabase.rpc("release_voting", { p_election_id: electionId });
+
+  if (error) {
+    const code = error.message.trim();
+    if (code === "VOTING_NOT_STARTED") {
+      return { error: "A votação ainda não começou pelo cronograma." };
+    }
+    if (code === "VOTING_WINDOW_NOT_CONFIGURED") {
+      return { error: "Configure as datas da fase de votação no cronograma antes de liberar." };
+    }
+    if (code === "VOTING_ALREADY_CLOSED") return { error: "A votação já foi encerrada." };
+    return { error: "Não foi possível liberar a votação." };
+  }
+
+  await logAdminAction("VOTING_RELEASED", { electionId });
+  // voting_released_at muda o status e, com ele, a home, a urna e o painel.
+  updateTag(CACHE_TAGS.publicElection);
+  revalidatePath("/admin/votacao");
+  revalidatePath("/admin/candidatos");
+  revalidatePath("/");
+  revalidatePath("/votar");
+  return { error: null };
+}
+
 export async function computeResultsAction(
   _prevState: ElectionControlState,
   formData: FormData,

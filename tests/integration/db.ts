@@ -34,7 +34,7 @@ export async function resetDatabase(): Promise<void> {
  * globais (voters/candidates continuam únicas por matrícula/nome, então os
  * testes também geram valores únicos para essas).
  */
-export async function createTestElection(): Promise<string> {
+export async function createTestElection(released = true): Promise<string> {
   const electionId = randomUUID();
   await pool.query(`insert into elections (id, type, name) values ($1, 'general', 'Teste')`, [
     electionId,
@@ -66,7 +66,19 @@ export async function createTestElection(): Promise<string> {
     [electionId, order++],
   );
 
+  // Liberada por padrão: desde a migration 0020 a janela não basta para a
+  // votação estar em andamento. Quem testa a LIBERAÇÃO em si usa
+  // `createUnreleasedElection`.
+  if (released) {
+    await pool.query(`update elections set voting_released_at = now() where id = $1`, [electionId]);
+  }
+
   return electionId;
+}
+
+/** Eleição com a janela aberta mas AINDA NÃO liberada pelo administrador. */
+export async function createUnreleasedElection(): Promise<string> {
+  return createTestElection(false);
 }
 
 export type TestPosition = { id: string; slug: string; votesPerVoter: number; vacancies: number };

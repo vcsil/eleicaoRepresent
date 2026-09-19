@@ -34,7 +34,17 @@ vi.mock("next/navigation", () => adminScope.nextNavigation());
 function createQueryStub() {
   const result = { data: null, error: null };
   const chain: Record<string, unknown> = {};
-  for (const method of ["select", "update", "insert", "delete", "eq", "is", "maybeSingle"]) {
+  for (const method of [
+    "select",
+    "update",
+    "insert",
+    "delete",
+    "eq",
+    "is",
+    "order",
+    "limit",
+    "maybeSingle",
+  ]) {
     chain[method] = () => chain;
   }
   chain.then = (resolve: (v: unknown) => unknown) => resolve(result);

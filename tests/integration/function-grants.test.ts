@@ -1,5 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { pool, resetDatabase, createTestElection, createVoter, closeVoting } from "./db";
+import {
+  pool,
+  resetDatabase,
+  createTestElection,
+  createUnreleasedElection,
+  createPosition,
+  createVoter,
+  closeVoting,
+} from "./db";
 
 /**
  * Permissões das funções chamadas por RPC.
@@ -116,5 +124,54 @@ describe("permissões das funções de leitura consolidada (migration 0012)", ()
       expect(result.status).not.toBe("votacao_em_andamento");
       expect(result.participation).toBeNull();
     });
+  });
+
+  // ===================================================================
+  // Migration 0020 — liberação manual e cargos sem disputa.
+  // ===================================================================
+
+  describe("release_voting — administrativa", () => {
+    it("service_role executa", async () => {
+      const id = await createUnreleasedElection();
+      const result = await callAs("service_role", "select release_voting($1) as result", [id]);
+      expect(result).toBeTruthy();
+    });
+
+    // Liberar a votação pelo browser seria abrir a urna sem administrador.
+    for (const role of ["anon", "authenticated"]) {
+      it(`${role} recebe permission denied`, async () => {
+        const id = await createUnreleasedElection();
+        await expect(
+          callAs(role, "select release_voting($1) as result", [id]),
+        ).rejects.toThrow(/permission denied for function release_voting/);
+      });
+    }
+  });
+
+  describe("position_is_contested / contested_position_ids — administrativas", () => {
+    it("service_role executa as duas", async () => {
+      const position = await createPosition({ slug: `grants-${Date.now()}` });
+      expect(
+        await callAs("service_role", "select position_is_contested($1) as result", [position.id]),
+      ).toBe(false);
+      expect(await callAs("service_role", "select contested_position_ids() as result")).toEqual([]);
+    });
+
+    // Expostas à chave pública, revelariam a composição da eleição (quantos
+    // candidatos por cargo) antes da divulgação.
+    for (const role of ["anon", "authenticated"]) {
+      it(`${role} recebe permission denied em position_is_contested`, async () => {
+        const position = await createPosition({ slug: `grants-${role}-${Date.now()}` });
+        await expect(
+          callAs(role, "select position_is_contested($1) as result", [position.id]),
+        ).rejects.toThrow(/permission denied for function position_is_contested/);
+      });
+
+      it(`${role} recebe permission denied em contested_position_ids`, async () => {
+        await expect(callAs(role, "select contested_position_ids() as result")).rejects.toThrow(
+          /permission denied for function contested_position_ids/,
+        );
+      });
+    }
   });
 });

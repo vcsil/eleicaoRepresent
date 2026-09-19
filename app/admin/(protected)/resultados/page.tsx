@@ -63,7 +63,16 @@ export default async function AdminResultadosPage() {
       )}
 
       <div className="mt-6 space-y-6">
-        {Array.from(byPosition.entries()).map(([positionId, rows]) => (
+        {Array.from(byPosition.entries()).map(([positionId, rows]) => {
+          // Cargo sem disputa: as linhas vêm marcadas por compute_results e
+          // não têm contagem nenhuma — mostrar "0 votos" seria descrever uma
+          // votação que não aconteceu.
+          const semDisputa = rows.some((row) => row.unopposed);
+          const eleitos = rows.filter((row) => row.elected).length;
+          const vagas = rows[0]?.vacancies ?? null;
+          const vagasSemPreenchimento = vagas === null ? 0 : Math.max(vagas - eleitos, 0);
+
+          return (
           <section key={positionId}>
             <h2 className="mb-2 font-semibold text-foreground">{rows[0]?.position_name}</h2>
             <Card className="divide-y divide-border">
@@ -73,19 +82,26 @@ export default async function AdminResultadosPage() {
                   className="flex items-center justify-between gap-3 p-3 text-sm"
                 >
                   <span className="min-w-0 break-words text-foreground">
-                    {`${row.rank}º ${row.candidate_name}`}
+                    {row.unopposed ? row.candidate_name : `${row.rank}º ${row.candidate_name}`}
                     {row.seat_label && (
                       <span className="ml-2 text-xs text-foreground-muted">({row.seat_label})</span>
                     )}
                   </span>
                   <span className="flex shrink-0 items-center gap-2">
-                    <span className="tabular-nums text-foreground-muted">{row.votes_count} votos</span>
-                    {row.elected && <Badge tone="success">Eleito</Badge>}
+                    {!row.unopposed && (
+                      <span className="tabular-nums text-foreground-muted">
+                        {row.votes_count} votos
+                      </span>
+                    )}
+                    {row.elected && (
+                      <Badge tone="success">{row.unopposed ? "Eleito sem disputa" : "Eleito"}</Badge>
+                    )}
                     {row.tie_break_needed && <Badge tone="warning">Empate</Badge>}
                   </span>
                 </div>
               ))}
-              {rows.filter((row) => row.candidate_id === null).map((row) => (
+              {!semDisputa &&
+                rows.filter((row) => row.candidate_id === null).map((row) => (
                 <div
                   key="null"
                   className="flex items-center justify-between gap-3 p-3 text-sm text-foreground-muted"
@@ -94,9 +110,19 @@ export default async function AdminResultadosPage() {
                   <span className="tabular-nums">{row.votes_count} votos</span>
                 </div>
               ))}
+              {vagasSemPreenchimento > 0 && (
+                <div className="p-3 text-sm text-foreground-muted">
+                  {vagasSemPreenchimento}{" "}
+                  {vagasSemPreenchimento === 1
+                    ? "vaga não preenchida"
+                    : "vagas não preenchidas"}{" "}
+                  (sem candidato).
+                </div>
+              )}
             </Card>
           </section>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

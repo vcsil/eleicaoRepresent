@@ -26,6 +26,21 @@ export default async function VotarPage() {
     );
   }
 
+  // Eleição geral sem nenhum cargo em disputa: não existe cédula a
+  // preencher. Ninguém se identifica, nenhum voto é registrado — os
+  // candidatos são formalizados na apuração.
+  if (active.type === "general" && active.positions.length === 0) {
+    return (
+      <div className="mx-auto max-w-md px-4 py-16 sm:px-6">
+        <EmptyState
+          title="Não há cargos em disputa nesta eleição"
+          description="Os candidatos sem concorrência serão formalmente definidos durante a apuração."
+          action={<Button href="/">Voltar ao início</Button>}
+        />
+      </div>
+    );
+  }
+
   const isRunoff = active.type === "runoff";
 
   return (

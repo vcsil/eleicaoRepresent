@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import { listAllCandidates } from "@/lib/admin/candidates";
 import { getActivePositions } from "@/lib/election/positions";
+import { electionIsFrozen } from "@/lib/election/composition-freeze";
 import { setCandidateActiveAction } from "./actions";
 import { candidatePhotoUrl } from "@/lib/media/candidate-photo";
 import { Card } from "@/components/ui/Card";
@@ -13,15 +14,27 @@ export const metadata: Metadata = { title: "Candidatos — Administração" };
 export const dynamic = "force-dynamic";
 
 export default async function AdminCandidatosPage() {
-  const [candidates, positions] = await Promise.all([listAllCandidates(), getActivePositions()]);
+  const [candidates, positions, frozen] = await Promise.all([
+    listAllCandidates(),
+    getActivePositions(),
+    electionIsFrozen(),
+  ]);
   const positionName = (id: string) => positions.find((p) => p.id === id)?.name ?? "—";
 
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold text-foreground">Candidatos</h1>
-        <Button href="/admin/candidatos/novo">Adicionar candidato</Button>
+        {!frozen && <Button href="/admin/candidatos/novo">Adicionar candidato</Button>}
       </div>
+
+      {frozen && (
+        <p className="mt-4 rounded-md bg-warning-bg px-3.5 py-2.5 text-sm text-warning">
+          A votação já foi liberada: a composição está congelada. Não é possível cadastrar,
+          remover, ativar, inativar, renomear, reordenar nem trocar o cargo de candidatos. Foto,
+          frase, apresentação, propostas e vídeo continuam editáveis.
+        </p>
+      )}
 
       {candidates.length === 0 ? (
         <div className="mt-6">
@@ -62,11 +75,15 @@ export default async function AdminCandidatosPage() {
                   <Button href={`/admin/candidatos/${candidate.id}`} variant="secondary" size="md">
                     Editar
                   </Button>
-                  <form action={setCandidateActiveAction.bind(null, candidate.id, !candidate.active)}>
-                    <Button type="submit" variant="ghost" size="md">
-                      {candidate.active ? "Desativar" : "Reativar"}
-                    </Button>
-                  </form>
+                  {!frozen && (
+                    <form
+                      action={setCandidateActiveAction.bind(null, candidate.id, !candidate.active)}
+                    >
+                      <Button type="submit" variant="ghost" size="md">
+                        {candidate.active ? "Desativar" : "Reativar"}
+                      </Button>
+                    </form>
+                  )}
                 </div>
               </Card>
             );

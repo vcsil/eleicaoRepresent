@@ -4,6 +4,7 @@ import { getActiveCandidates } from "@/lib/election/candidates";
 import { createServiceClient } from "@/lib/supabase/service";
 import type { VoteSessionElection } from "@/lib/election/vote-session";
 import { compareCandidatesByName } from "@/lib/election/display-order";
+import { getContestedPositionIds } from "@/lib/election/composition-freeze";
 
 export type WizardPosition = {
   id: string;
@@ -22,9 +23,24 @@ export type BallotOptions = {
   candidatesByPosition: Record<string, WizardCandidate[]>;
 };
 
-/** Cédula da eleição geral: todos os cargos ativos e seus candidatos. */
+/**
+ * Cédula da eleição geral: os cargos ativos COM DISPUTA e seus candidatos.
+ *
+ * Cargo cujos candidatos ativos não superam as vagas fica de fora — não há
+ * escolha a fazer, e pedir um voto obrigatório ali seria encenação. A lista
+ * vem de `contested_position_ids()`, a mesma que `cast_ballot` exige: a
+ * cédula não pode trazer um cargo que o envio vai recusar, nem faltar um
+ * que ele vai cobrar.
+ */
 async function getGeneralBallotOptions(): Promise<BallotOptions> {
-  const [positions, candidates] = await Promise.all([getActivePositions(), getActiveCandidates()]);
+  const [todasPositions, candidates, contestedIds] = await Promise.all([
+    getActivePositions(),
+    getActiveCandidates(),
+    getContestedPositionIds(),
+  ]);
+
+  const contested = new Set(contestedIds);
+  const positions = todasPositions.filter((p) => contested.has(p.id));
 
   const candidatesByPosition: Record<string, WizardCandidate[]> = {};
   for (const position of positions) {

@@ -13,6 +13,8 @@ export type ResultSnapshotRow = {
   votes_count: number;
   rank: number | null;
   elected: boolean;
+  /** Eleito sem disputa: não houve votação neste cargo (migration 0020). */
+  unopposed: boolean;
   seat_label: string | null;
 };
 
@@ -30,7 +32,7 @@ async function fetchPublishedResults(electionId: string): Promise<ResultSnapshot
   const { data, error } = await supabase
     .from("result_snapshots")
     .select(
-      "position_id, position_name, candidate_id, candidate_name, candidate_photo_path, votes_count, rank, elected, seat_label",
+      "position_id, position_name, candidate_id, candidate_name, candidate_photo_path, votes_count, rank, elected, unopposed, seat_label",
     )
     .eq("election_id", electionId);
 
@@ -98,7 +100,7 @@ async function fetchRunoffRounds(parentElectionId: string): Promise<RunoffRound[
   const { data: snapshots, error: snapshotError } = await supabase
     .from("result_snapshots")
     .select(
-      "election_id, position_id, candidate_id, candidate_name, candidate_photo_path, votes_count, rank, elected, seat_label",
+      "election_id, position_id, candidate_id, candidate_name, candidate_photo_path, votes_count, rank, elected, unopposed, seat_label",
     )
     .in("election_id", runoffIds);
 

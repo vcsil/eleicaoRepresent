@@ -92,7 +92,31 @@ export default async function ResultadosPage() {
             .filter((r) => r.candidate_id !== null);
           const nullRow = rows.find((r) => r.candidate_id === null);
 
-          if (rows.length === 0) return null;
+          // Nenhum snapshot para o cargo: não havia candidato nenhum. A
+          // seção continua aparecendo para registrar as vagas vazias —
+          // sumir daria a impressão de que o cargo não existiu.
+          if (rows.length === 0) {
+            return (
+              <section key={position.id}>
+                <h2 className="mb-3 text-lg font-semibold text-foreground">{position.name}</h2>
+                <Card>
+                  <p className="p-4 text-sm text-foreground-muted">
+                    Nenhuma candidatura: {position.vacancies}{" "}
+                    {position.vacancies === 1
+                      ? "vaga não foi preenchida"
+                      : "vagas não foram preenchidas"}
+                    .
+                  </p>
+                </Card>
+              </section>
+            );
+          }
+
+          // Cargo sem disputa: ninguém votou nele. Nada de contagem, nada de
+          // classificação, nada de "votos nulos" — só quem ficou com a vaga.
+          const semDisputa = rows.some((r) => r.unopposed);
+          const eleitos = rows.filter((r) => r.elected).length;
+          const vagasSemPreenchimento = Math.max(position.vacancies - eleitos, 0);
 
           return (
             <section key={position.id}>
@@ -102,9 +126,11 @@ export default async function ResultadosPage() {
                   const photoUrl = candidatePhotoUrl(row.candidate_photo_path);
                   return (
                     <div key={row.candidate_id} className="flex items-center gap-3 p-4">
-                      <span className="w-6 shrink-0 text-center text-sm font-semibold text-foreground-muted">
-                        {row.rank}º
-                      </span>
+                      {!row.unopposed && (
+                        <span className="w-6 shrink-0 text-center text-sm font-semibold text-foreground-muted">
+                          {row.rank}º
+                        </span>
+                      )}
                       {photoUrl ? (
                         <Image
                           src={photoUrl}
@@ -125,26 +151,39 @@ export default async function ResultadosPage() {
                         )}
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
-                        <span className="text-sm font-semibold tabular-nums text-foreground">
-                          {row.votes_count} {row.votes_count === 1 ? "voto" : "votos"}
-                        </span>
+                        {!row.unopposed && (
+                          <span className="text-sm font-semibold tabular-nums text-foreground">
+                            {row.votes_count} {row.votes_count === 1 ? "voto" : "votos"}
+                          </span>
+                        )}
                         {row.elected && (
                           <Badge tone="success">
-                            {wonByRunoff.has(`${position.id}:${row.candidate_id}`)
-                              ? "Eleito por desempate"
-                              : "Eleito"}
+                            {row.unopposed
+                              ? "Eleito sem disputa"
+                              : wonByRunoff.has(`${position.id}:${row.candidate_id}`)
+                                ? "Eleito por desempate"
+                                : "Eleito"}
                           </Badge>
                         )}
                       </div>
                     </div>
                   );
                 })}
-                {nullRow && (
+                {!semDisputa && nullRow && (
                   <div className="flex items-center justify-between p-4 text-sm text-foreground-muted">
                     <span>Votos nulos</span>
                     <span className="font-medium tabular-nums text-foreground">
                       {nullRow.votes_count}
                     </span>
+                  </div>
+                )}
+                {vagasSemPreenchimento > 0 && (
+                  <div className="p-4 text-sm text-foreground-muted">
+                    {vagasSemPreenchimento}{" "}
+                    {vagasSemPreenchimento === 1
+                      ? "vaga não foi preenchida"
+                      : "vagas não foram preenchidas"}{" "}
+                    por falta de candidatos.
                   </div>
                 )}
               </Card>

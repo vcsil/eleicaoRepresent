@@ -81,6 +81,7 @@ Nunca use o prefixo `NEXT_PUBLIC_` em nenhuma das variáveis marcadas "Não".
    supabase/migrations/0017_import_voters.sql
    supabase/migrations/0018_admin_idle_timeout_10min.sql
    supabase/migrations/0019_fix_runoff_overlap_and_dual_winner_cascade.sql
+   supabase/migrations/0020_manual_release_and_uncontested.sql
    ```
 4. Rode `supabase/seed.sql` para cadastrar a eleição principal, os 6 cargos
    (13 vagas) e o cronograma oficial (seção 7 do documento técnico) — os
@@ -145,6 +146,32 @@ migration `0007_storage.sql`.
 > resultado sendo publicado assim mesmo. Aplicar é seguro a qualquer
 > momento: substitui quatro funções e troca uma restrição por um índice
 > parcial, sem tocar em voto, apuração ou resultado já gravado.
+>
+> **Já aplicou até a 0019?** A `0020_manual_release_and_uncontested.sql`
+> muda duas regras eleitorais e **precisa ser aplicada junto com o código**
+> desta versão:
+>
+> - **A votação passa a abrir por liberação explícita.** Chegar o horário
+>   do cronograma deixa de ser suficiente: enquanto
+>   `elections.voting_released_at` for nulo, o status continua
+>   `aguardando_votacao` e a urna não existe. O administrador libera em
+>   `/admin/votacao`, uma única vez — a ação é irreversível e **congela a
+>   composição** (não se cadastra, remove, ativa, inativa, renomeia,
+>   reordena nem troca o cargo de candidato depois dela; foto, frase,
+>   apresentação, propostas e vídeo continuam editáveis). **Sem aplicar a
+>   migration, o botão de liberar falha com "permission denied for function
+>   release_voting". Aplicando a migration sem subir o código, uma eleição
+>   cujo horário já chegou fica em `aguardando_votacao` até alguém liberar
+>   — e a tela para liberar ainda não existe.**
+> - **Cargo sem disputa sai da urna.** Um cargo cujos candidatos ativos não
+>   superam as vagas não aparece na cédula, `cast_ballot` não o exige, e na
+>   apuração seus candidatos são declarados eleitos com a marca
+>   `result_snapshots.unopposed` — sem voto artificial e sem exibir "0
+>   votos". Vagas sem candidato ficam registradas como não preenchidas.
+>
+> Nenhum voto, cédula ou resultado já gravado é alterado: a migration
+> acrescenta duas colunas (com valor padrão), duas funções novas e
+> substitui quatro existentes.
 
 ## Desenvolvimento
 
@@ -219,6 +246,42 @@ cache estático), nenhuma etapa extra de revalidação é necessária.
   candidatos ativos, cronograma, resultados após publicação) tem policy de
   leitura para `anon`/`authenticated`.
 - **Detalhes completos**: seções 4-15 de `docs/TECHNICAL_DESIGN.md`.
+
+## Abertura da votação e cargos sem disputa
+
+**A urna abre por decisão, não por relógio.** O horário configurado no
+cronograma é condição necessária, não suficiente: até o administrador
+clicar em "Liberar votação" em `/admin/votacao`, o status continua
+`aguardando_votacao` e `/votar` não oferece urna nenhuma. O estado vive em
+`elections.voting_released_at` e é escrito por `release_voting`, que recusa
+liberar antes da hora inicial, fora de uma eleição geral ou depois do
+encerramento. **A liberação é irreversível** — não existe ação para
+desfazê-la, e `voting_released_at` nunca volta a ser nulo.
+
+**Liberar congela a composição.** Depois da abertura não se cadastra,
+remove, ativa, inativa, renomeia, reordena nem troca o cargo de nenhum
+candidato: mudar quem concorre mudaria a cédula debaixo de quem já votou, e
+pode até fazer um cargo inteiro entrar ou sair dela. Foto, frase,
+apresentação, propostas e vídeo continuam editáveis. A recusa acontece na
+Server Action (`upsertCandidateAction`, `setCandidateActiveAction`), não só
+na tela — um POST montado à mão é recusado igual.
+
+**Cargo sem disputa não vai à urna.** Se os candidatos ativos de um cargo
+não superam suas vagas, não há escolha a fazer: o cargo sai da cédula,
+`cast_ballot` não exige voto para ele, e um payload que o inclua é
+rejeitado. Quem decide é `position_is_contested` no Postgres — a mesma
+função que monta a cédula e que valida o envio, nunca uma contagem
+recalculada em TypeScript. Voto nulo não conta como candidato.
+
+**Quem não teve concorrência é eleito na apuração, não antes.**
+`compute_results` declara esses candidatos eleitos com
+`result_snapshots.unopposed = true`; as telas mostram "Eleito sem disputa"
+e omitem a contagem, porque exibir "0 votos" descreveria uma derrota, e não
+uma formalização. Nenhum voto artificial é criado e nenhuma linha de nulos
+é gerada. Vagas que sobram aparecem como não preenchidas (`vagas −
+eleitos`). Se **nenhum** cargo tiver disputa, `/votar` informa que não há
+cargos em disputa, ninguém se identifica e nenhuma cédula é criada — a
+eleição é decidida inteiramente na apuração.
 
 ## Fluxo de desempate
 

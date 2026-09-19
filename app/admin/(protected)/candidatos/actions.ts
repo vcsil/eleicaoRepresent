@@ -8,6 +8,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { uploadCandidatePhoto, deleteCandidatePhoto, PhotoUploadError } from "@/lib/admin/photo-upload";
 import { logAdminAction } from "@/lib/admin/audit-log";
 import { requireAdminSession } from "@/lib/admin/session";
+import { electionIsFrozen } from "@/lib/election/composition-freeze";
 import { canonicalYouTubeUrl } from "@/lib/media/youtube";
 import {
   ensureYouTubeThumbnail,
@@ -16,6 +17,17 @@ import {
 } from "@/lib/admin/youtube-thumbnail";
 
 export type CandidateFormState = { error: string | null };
+
+const COMPOSICAO_CONGELADA =
+  "A votação já foi liberada: a composição da eleição não pode mais mudar. " +
+  "Foto, frase, apresentação, propostas e vídeo continuam editáveis.";
+
+/** Mesmos cargos, em qualquer ordem. */
+function mesmosCargos(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return b.every((id) => set.has(id));
+}
 
 /**
  * Qualquer alteração em candidato (criar, editar, ativar, desativar,
@@ -55,6 +67,41 @@ export async function upsertCandidateAction(
   }
 
   const supabase = createServiceClient();
+
+  // Composição congelada desde a liberação da votação. A recusa é aqui, no
+  // servidor: campo readOnly na tela é cortesia, não controle.
+  //
+  // Só é recusado o que REALMENTE muda — reenviar o mesmo nome e os mesmos
+  // cargos junto com um vídeo novo continua valendo, que é o caso de uso
+  // que a regra precisa preservar.
+  const congelada = await electionIsFrozen();
+  if (congelada) {
+    if (!parsed.data.id) {
+      return { error: "A votação já foi liberada: não é possível cadastrar novos candidatos." };
+    }
+    const { data: atual } = await supabase
+      .from("candidates")
+      .select("full_name, active, display_order, candidate_positions ( position_id )")
+      .eq("id", parsed.data.id)
+      .maybeSingle();
+
+    if (!atual) return { error: "Candidato não encontrado." };
+
+    const cargosAtuais = (
+      (atual as unknown as { candidate_positions: { position_id: string }[] }).candidate_positions ??
+      []
+    ).map((row) => row.position_id);
+
+    if (
+      atual.full_name !== parsed.data.full_name ||
+      atual.active !== parsed.data.active ||
+      atual.display_order !== parsed.data.display_order ||
+      !mesmosCargos(cargosAtuais, parsed.data.position_ids)
+    ) {
+      return { error: COMPOSICAO_CONGELADA };
+    }
+  }
+
   let photoPath: string | undefined;
 
   const photoFile = formData.get("photo");
@@ -169,6 +216,12 @@ export async function upsertCandidateAction(
 
 export async function setCandidateActiveAction(candidateId: string, active: boolean): Promise<void> {
   await requireAdminSession();
+  // Ativar/inativar é o caminho mais curto para mudar a composição: um
+  // candidato a menos pode tirar o cargo inteiro da cédula (cargo sem
+  // disputa não vai à urna). Bloqueado junto com o resto.
+  if (await electionIsFrozen()) {
+    throw new Error("COMPOSITION_FROZEN");
+  }
   const supabase = createServiceClient();
   const { error } = await supabase.from("candidates").update({ active }).eq("id", candidateId);
   if (error) throw error;
