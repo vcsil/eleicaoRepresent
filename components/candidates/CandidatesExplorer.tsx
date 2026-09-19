@@ -151,7 +151,11 @@ export function CandidatesExplorer({
             </div>
 
             {selected.video_url && (
-              <YouTubePlayer url={selected.video_url} title={selected.full_name} />
+              <YouTubePlayer
+                url={selected.video_url}
+                title={selected.full_name}
+                candidateId={selected.id}
+              />
             )}
 
             {selected.presentation && (

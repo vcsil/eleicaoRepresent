@@ -116,14 +116,50 @@ describe("candidateUpsertSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("accepts a valid youtu.be URL", () => {
-    const result = candidateUpsertSchema.safeParse({
+  // O identificador passou a exigir os 11 caracteres que o YouTube usa; a
+  // fixture antiga ("abc123") era um valor inventado de 6.
+  const VIDEO_ID = "ABCDEFGHIJK";
+
+  function comVideo(video_url: string) {
+    return candidateUpsertSchema.safeParse({
       full_name: "Maria",
       active: true,
       display_order: 0,
       position_ids: [uuid1],
-      video_url: "https://youtu.be/abc123",
+      video_url,
     });
-    expect(result.success).toBe(true);
+  }
+
+  it("accepts a valid youtu.be URL", () => {
+    expect(comVideo(`https://youtu.be/${VIDEO_ID}`).success).toBe(true);
+  });
+
+  it("aceita um link de YouTube Shorts", () => {
+    expect(comVideo(`https://www.youtube.com/shorts/${VIDEO_ID}`).success).toBe(true);
+  });
+
+  it("aceita watch com parâmetros extras e o domínio móvel", () => {
+    expect(comVideo(`https://www.youtube.com/watch?v=${VIDEO_ID}&si=abc`).success).toBe(true);
+    expect(comVideo(`https://m.youtube.com/watch?v=${VIDEO_ID}`).success).toBe(true);
+  });
+
+  it("rejeita link do YouTube sem vídeo", () => {
+    // Antes bastava começar com youtube.com: passava aqui e sumia no player.
+    expect(comVideo("https://www.youtube.com/").success).toBe(false);
+    expect(comVideo("https://www.youtube.com/@umcanal").success).toBe(false);
+  });
+
+  it("rejeita domínio que apenas imita o YouTube", () => {
+    expect(comVideo(`https://youtube.com.exemplo-malicioso.com/watch?v=${VIDEO_ID}`).success).toBe(
+      false,
+    );
+  });
+
+  it("a mensagem de erro diz o que é aceito", () => {
+    const resultado = comVideo("https://vimeo.com/123");
+    expect(resultado.success).toBe(false);
+    if (!resultado.success) {
+      expect(resultado.error.issues[0].message).toMatch(/YouTube Shorts/);
+    }
   });
 });

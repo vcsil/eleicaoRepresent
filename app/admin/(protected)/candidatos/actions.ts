@@ -8,6 +8,12 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { uploadCandidatePhoto, deleteCandidatePhoto, PhotoUploadError } from "@/lib/admin/photo-upload";
 import { logAdminAction } from "@/lib/admin/audit-log";
 import { requireAdminSession } from "@/lib/admin/session";
+import { canonicalYouTubeUrl } from "@/lib/media/youtube";
+import {
+  ensureYouTubeThumbnail,
+  deleteYouTubeThumbnail,
+  sameVideo,
+} from "@/lib/admin/youtube-thumbnail";
 
 export type CandidateFormState = { error: string | null };
 
@@ -68,7 +74,10 @@ export async function upsertCandidateAction(
     tagline: parsed.data.tagline || null,
     presentation: parsed.data.presentation || null,
     proposals: parsed.data.proposals || null,
-    video_url: parsed.data.video_url || null,
+    // Grava a forma canônica: preserva Short vs padrão (é ela que define a
+    // proporção), descarta parâmetros de rastreamento e mantém m.youtube.com
+    // dentro da CHECK de candidates.video_url, sem precisar de migration.
+    video_url: canonicalYouTubeUrl(parsed.data.video_url),
     active: parsed.data.active,
     display_order: parsed.data.display_order,
     ...(photoPath ? { photo_path: photoPath } : {}),
@@ -76,21 +85,55 @@ export async function upsertCandidateAction(
 
   let candidateId = parsed.data.id;
   let previousPhotoPath: string | null = null;
+  let previousVideoUrl: string | null = null;
+  let videoChanged = false;
+  // Só a capa que ESTA gravação criou pode ser desfeita por compensação.
+  let capaCriadaAgora = false;
 
   if (candidateId) {
     const { data: existing } = await supabase
       .from("candidates")
-      .select("photo_path")
+      .select("photo_path, video_url")
       .eq("id", candidateId)
       .maybeSingle();
     previousPhotoPath = existing?.photo_path ?? null;
+    previousVideoUrl = existing?.video_url ?? null;
+
+    // O vídeo mudou? A comparação é pelo ID normalizado: trocar
+    // youtu.be/ID por watch?v=ID é o MESMO vídeo e não pode disparar um
+    // novo download nem apagar a capa existente.
+    videoChanged = !sameVideo(previousVideoUrl, record.video_url);
+
+    // Capa ANTES do banco: se falhar, o candidato ainda é salvo e o player
+    // usa o placeholder. Se o banco falhar depois, a capa órfã é removida
+    // por compensação — mas só se tiver sido criada agora.
+    //
+    // Chamado em TODA gravação com vídeo, não só quando o vídeo muda: é o
+    // que dá capa a candidatos cadastrados antes desta funcionalidade e o
+    // que permite uma nova tentativa depois de uma falha transitória.
+    // Quando a capa já está lá, isto custa uma listagem e nenhum fetch.
+    if (record.video_url) {
+      const capa = await ensureYouTubeThumbnail(candidateId, record.video_url);
+      capaCriadaAgora = capa.stored && capa.created;
+    }
 
     const { error } = await supabase.from("candidates").update(record).eq("id", candidateId);
-    if (error) return { error: "Não foi possível salvar o candidato." };
+    if (error) {
+      if (capaCriadaAgora && record.video_url) {
+        await deleteYouTubeThumbnail(candidateId, record.video_url);
+      }
+      return { error: "Não foi possível salvar o candidato." };
+    }
   } else {
     const { data, error } = await supabase.from("candidates").insert(record).select("id").single();
     if (error || !data) return { error: "Não foi possível criar o candidato." };
-    candidateId = data.id;
+    const novoId = data.id as string;
+    candidateId = novoId;
+
+    // Na criação o id só existe depois do insert, então a capa vem em
+    // seguida. Falhar aqui não desfaz o candidato: ele fica com o vídeo e
+    // com o placeholder, e a próxima gravação tenta de novo.
+    if (record.video_url) await ensureYouTubeThumbnail(novoId, record.video_url);
   }
 
   await supabase.from("candidate_positions").delete().eq("candidate_id", candidateId);
@@ -100,6 +143,13 @@ export async function upsertCandidateAction(
 
   if (positionsError) {
     return { error: "Não foi possível salvar os cargos do candidato (máximo 2)." };
+  }
+
+  // Só agora, com o banco confirmado: a tela já aponta para a capa nova (o
+  // caminho é derivado do vídeo atual), então isto é coleta de lixo — falhar
+  // deixa um arquivo órfão, nunca uma capa errada em exibição.
+  if (videoChanged && previousVideoUrl && candidateId) {
+    await deleteYouTubeThumbnail(candidateId, previousVideoUrl);
   }
 
   if (photoPath && previousPhotoPath) {
