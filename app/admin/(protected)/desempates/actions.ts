@@ -79,6 +79,12 @@ export async function createRunoffAction(
     if (code === "NO_TIE_FOR_POSITION") {
       return { error: "Este cargo não tem empate pendente." };
     }
+    if (code === "RUNOFF_WINDOW_OVERLAP") {
+      return {
+        error:
+          "Já existe outra votação de desempate marcada para este período. Duas votações abertas ao mesmo tempo impedem a urna de saber em qual votar — escolha um período diferente, ou inclua os dois cargos na mesma votação.",
+      };
+    }
     return { error: "Não foi possível criar a votação de desempate." };
   }
 
