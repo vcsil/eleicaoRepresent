@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isSupportedYouTubeUrl } from "@/lib/media/youtube";
 
 export const voterValidationSchema = z
   .object({
@@ -34,13 +35,17 @@ export const adminLoginSchema = z
   })
   .strict();
 
+/**
+ * Valida com o MESMO parser que o player usa para exibir.
+ *
+ * Antes bastava a URL começar com youtube.com: um link de Short passava na
+ * validação, era gravado e depois sumia da tela, porque o player não sabia
+ * lê-lo. Aceitar e conseguir exibir passam a ser a mesma pergunta.
+ */
 export const youtubeUrlSchema = z
   .string()
   .trim()
-  .regex(
-    /^https:\/\/(www\.)?youtube\.com\/|^https:\/\/youtu\.be\//,
-    "URL precisa ser do YouTube",
-  );
+  .refine(isSupportedYouTubeUrl, "Use um link válido do YouTube ou YouTube Shorts.");
 
 export const candidateUpsertSchema = z
   .object({

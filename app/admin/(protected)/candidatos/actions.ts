@@ -8,6 +8,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { uploadCandidatePhoto, deleteCandidatePhoto, PhotoUploadError } from "@/lib/admin/photo-upload";
 import { logAdminAction } from "@/lib/admin/audit-log";
 import { requireAdminSession } from "@/lib/admin/session";
+import { canonicalYouTubeUrl } from "@/lib/media/youtube";
 
 export type CandidateFormState = { error: string | null };
 
@@ -68,7 +69,10 @@ export async function upsertCandidateAction(
     tagline: parsed.data.tagline || null,
     presentation: parsed.data.presentation || null,
     proposals: parsed.data.proposals || null,
-    video_url: parsed.data.video_url || null,
+    // Grava a forma canônica: preserva Short vs padrão (é ela que define a
+    // proporção), descarta parâmetros de rastreamento e mantém m.youtube.com
+    // dentro da CHECK de candidates.video_url, sem precisar de migration.
+    video_url: canonicalYouTubeUrl(parsed.data.video_url),
     active: parsed.data.active,
     display_order: parsed.data.display_order,
     ...(photoPath ? { photo_path: photoPath } : {}),

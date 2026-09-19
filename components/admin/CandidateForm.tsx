@@ -117,16 +117,20 @@ export function CandidateForm({
 
       <div>
         <label htmlFor="video_url" className="block text-sm font-medium text-foreground">
-          URL do vídeo (YouTube, opcional)
+          URL do vídeo (YouTube ou Shorts, opcional)
         </label>
         <input
           id="video_url"
           name="video_url"
           type="url"
           defaultValue={candidate?.video_url ?? ""}
-          placeholder="https://www.youtube.com/watch?v=..."
+          placeholder="https://www.youtube.com/watch?v=... ou .../shorts/..."
           className={inputClass}
+          aria-describedby="video_url_ajuda"
         />
+        <p id="video_url_ajuda" className="mt-1 text-xs text-foreground-muted">
+          Um link <code>/shorts/</code> é exibido em vertical (9:16); os demais, em 16:9.
+        </p>
       </div>
 
       <div>

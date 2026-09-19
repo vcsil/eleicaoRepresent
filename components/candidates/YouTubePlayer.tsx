@@ -1,32 +1,36 @@
 "use client";
 
 import { useState } from "react";
+import { parseYouTubeUrl } from "@/lib/media/youtube";
 
-function extractYouTubeId(url: string): string | null {
-  const patterns = [
-    /youtube\.com\/watch\?v=([\w-]{6,})/,
-    /youtu\.be\/([\w-]{6,})/,
-    /youtube\.com\/embed\/([\w-]{6,})/,
-  ];
-  for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match) return match[1];
-  }
-  return null;
-}
+/**
+ * A proporção vem da forma da URL cadastrada (ver lib/media/youtube.ts).
+ *
+ * O Short é limitado em largura e centralizado: sem isso, um vídeo 9:16
+ * ocupando a largura do Sheet ficaria mais alto que a viewport e o
+ * administrador teria de rolar para ver o próprio vídeo. O teto de largura
+ * depende da ALTURA da viewport (`60vh * 9/16`), então o vídeo cabe na tela
+ * mesmo num desktop baixo — e a proporção nunca é distorcida, porque quem
+ * limita é a largura, não um max-height cortando a caixa.
+ */
+const MOLDURA = {
+  standard: "aspect-video w-full",
+  short: "mx-auto aspect-[9/16] w-full max-w-[min(20rem,60vh*9/16)]",
+} as const;
 
 export function YouTubePlayer({ url, title }: { url: string; title: string }) {
   const [playing, setPlaying] = useState(false);
-  const videoId = extractYouTubeId(url);
+  const video = parseYouTubeUrl(url);
 
-  if (!videoId) return null;
+  if (!video) return null;
 
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-surface-muted">
+    // O placeholder usa a MESMA moldura do iframe: clicar não muda o layout.
+    <div className={`relative overflow-hidden rounded-lg bg-surface-muted ${MOLDURA[video.format]}`}>
       {playing ? (
         <iframe
           className="h-full w-full"
-          src={`https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1`}
+          src={`https://www.youtube-nocookie.com/embed/${video.videoId}?autoplay=1`}
           title={`Vídeo de apresentação — ${title}`}
           loading="lazy"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
