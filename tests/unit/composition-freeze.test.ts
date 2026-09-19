@@ -2,13 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createAdminRequestScope } from "@/tests/mocks/admin-request";
 
 /**
- * Depois que a votação é liberada, a composição da eleição não muda mais.
+ * O congelamento da composição é decidido no banco, numa transação só
+ * (`save_candidate` / `set_candidate_active`, migration 0021). O
+ * comportamento eleitoral está coberto contra um PostgreSQL real em
+ * `tests/integration/composicao-atomica.test.ts`, inclusive a corrida com
+ * a liberação.
  *
- * O que estes testes protegem não é a tela — é a RECUSA no servidor. Um
- * campo escondido no formulário não impede um POST montado à mão, e mudar
- * um candidato depois da abertura da urna muda a cédula debaixo de quem já
- * votou (e pode até fazer um cargo inteiro entrar ou sair dela, porque
- * cargo sem disputa não vai à urna).
+ * O que sobra para este arquivo é o contrato da Server Action:
+ *  - ela delega a gravação inteira à função atômica, em vez de emendar
+ *    leitura, DELETE e INSERT por conta própria (era isso que abria as
+ *    janelas B, C e D);
+ *  - traduz cada recusa do banco numa mensagem para o administrador;
+ *  - mantém as chamadas externas (upload de foto, download de capa) FORA
+ *    da transação, e compensa a capa órfã quando a gravação falha.
  */
 
 const adminScope = createAdminRequestScope();
@@ -22,28 +28,34 @@ vi.mock("next/cache", () => ({
 }));
 
 vi.mock("@/lib/admin/audit-log", () => ({ logAdminAction: async () => {} }));
+
+const ensureYouTubeThumbnail =
+  vi.fn<(id: string, url: string) => Promise<{ stored: boolean; path: string; created: boolean }>>(
+    async () => ({ stored: true, path: "p", created: true }),
+  );
+const deleteYouTubeThumbnail = vi.fn<(id: string, url: string) => Promise<void>>(async () => {});
 vi.mock("@/lib/admin/youtube-thumbnail", () => ({
-  ensureYouTubeThumbnail: async () => ({ stored: false, reason: "sem-video" }),
-  deleteYouTubeThumbnail: async () => {},
-  sameVideo: () => true,
+  ensureYouTubeThumbnail: (id: string, url: string) => ensureYouTubeThumbnail(id, url),
+  deleteYouTubeThumbnail: (id: string, url: string) => deleteYouTubeThumbnail(id, url),
+  sameVideo: (a: string | null, b: string | null) => a === b,
 }));
 
-/** Estado do banco simulado, reescrito por cada teste. */
+/** Erro devolvido por `save_candidate` no próximo teste, se houver. */
+let rpcError: { message: string } | null = null;
+const rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
+/** Tabelas escritas direto pela action — deve ficar vazio. */
+const escritasDiretas: { tabela: string; operacao: string }[] = [];
 let votingReleasedAt: string | null = null;
-/** Quando verdadeiro, a leitura de `elections` falha. */
-let leituraDaEleicaoFalha = false;
-let candidatoAtual: Record<string, unknown> | null = null;
-const updates: Record<string, unknown>[] = [];
 
-function chain(resolved: { data: unknown; error: null }) {
+function chain(tabela: string, resolved: { data: unknown; error: null }) {
   const stub: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "order", "limit", "insert", "delete"]) {
-    stub[method] = () => stub;
+  for (const m of ["select", "eq", "order", "limit"]) stub[m] = () => stub;
+  for (const m of ["insert", "update", "delete", "upsert"]) {
+    stub[m] = () => {
+      escritasDiretas.push({ tabela, operacao: m });
+      return stub;
+    };
   }
-  stub.update = (payload: Record<string, unknown>) => {
-    updates.push(payload);
-    return stub;
-  };
   stub.maybeSingle = async () => resolved;
   stub.single = async () => resolved;
   stub.then = (resolve: (v: unknown) => unknown) => resolve(resolved);
@@ -52,21 +64,24 @@ function chain(resolved: { data: unknown; error: null }) {
 
 vi.mock("@/lib/supabase/service", () => ({
   createServiceClient: () => ({
-    from: (table: string) => {
-      if (table === "elections") {
-        return leituraDaEleicaoFalha
-          ? chain({ data: null, error: { message: "boom" } as unknown as null })
-          : chain({ data: { voting_released_at: votingReleasedAt }, error: null });
+    from: (tabela: string) => {
+      if (tabela === "elections") {
+        return chain(tabela, { data: { voting_released_at: votingReleasedAt }, error: null });
       }
-      if (table === "candidates") {
-        return chain({ data: candidatoAtual, error: null });
+      if (tabela === "candidates") {
+        return chain(tabela, {
+          data: { photo_path: null, video_url: null },
+          error: null,
+        });
       }
-      return chain({ data: null, error: null });
+      return chain(tabela, { data: null, error: null });
     },
-    rpc: async (fn: string) =>
-      fn === "check_admin_session"
-        ? adminScope.checkAdminSessionResult()
-        : { data: null, error: null },
+    rpc: async (fn: string, args: Record<string, unknown>) => {
+      if (fn === "check_admin_session") return adminScope.checkAdminSessionResult();
+      rpcCalls.push({ fn, args });
+      if (rpcError) return { data: null, error: rpcError };
+      return { data: (args.p_candidate_id as string) ?? "id-novo", error: null };
+    },
   }),
 }));
 
@@ -79,7 +94,6 @@ const CANDIDATO = "22222222-2222-4222-8222-222222222222";
 const CARGO_A = "33333333-3333-4333-8333-333333333333";
 const CARGO_B = "44444444-4444-4444-8444-444444444444";
 
-/** Formulário completo, como o navegador enviaria. */
 function form(overrides: Record<string, string> = {}): FormData {
   const data = new FormData();
   const campos: Record<string, string> = {
@@ -103,157 +117,150 @@ function form(overrides: Record<string, string> = {}): FormData {
 
 beforeEach(() => {
   adminScope.reset();
-  updates.length = 0;
-  leituraDaEleicaoFalha = false;
+  rpcCalls.length = 0;
+  escritasDiretas.length = 0;
+  rpcError = null;
   votingReleasedAt = "2026-09-19T12:00:00Z";
-  candidatoAtual = {
-    full_name: "Ana Souza",
-    active: true,
-    display_order: 3,
-    candidate_positions: [{ position_id: CARGO_A }],
-    photo_path: null,
-    video_url: null,
-  };
+  ensureYouTubeThumbnail.mockClear();
+  deleteYouTubeThumbnail.mockClear();
 });
 
-describe("electionIsFrozen", () => {
-  it("não congelada enquanto a votação não foi liberada", async () => {
-    votingReleasedAt = null;
-    expect(await electionIsFrozen()).toBe(false);
-  });
+describe("a gravação é uma operação só, no banco", () => {
+  it("delega tudo a save_candidate", async () => {
+    await expect(upsertCandidateAction({ error: null }, form())).rejects.toThrow("NEXT_REDIRECT");
 
-  it("congelada assim que existe carimbo de liberação", async () => {
-    expect(await electionIsFrozen()).toBe(true);
-  });
-
-  it("falha de leitura CONGELA — nunca libera a edição por não saber", async () => {
-    // Fail-closed de propósito: se o banco não responde, a resposta segura
-    // é recusar a alteração, não permitir uma mudança de composição no meio
-    // de uma votação em andamento.
-    leituraDaEleicaoFalha = true;
-    votingReleasedAt = null;
-    expect(await electionIsFrozen()).toBe(true);
-  });
-
-  it("uma falha de leitura bloqueia a Server Action", async () => {
-    leituraDaEleicaoFalha = true;
-    await expect(setCandidateActiveAction(CANDIDATO, false)).rejects.toThrow("COMPOSITION_FROZEN");
-    expect(updates).toHaveLength(0);
-  });
-});
-
-describe("upsertCandidateAction com a composição congelada", () => {
-  it("recusa trocar o nome", async () => {
-    const result = await upsertCandidateAction(
-      { error: null },
-      form({ full_name: "Ana Souza Lima" }),
-    );
-    expect(result.error).toMatch(/composição da eleição não pode mais mudar/);
-    expect(updates).toHaveLength(0);
-  });
-
-  it("recusa trocar o cargo", async () => {
-    const result = await upsertCandidateAction({ error: null }, form({ position_id_1: CARGO_B }));
-    expect(result.error).toMatch(/composição da eleição não pode mais mudar/);
-    expect(updates).toHaveLength(0);
-  });
-
-  it("recusa acrescentar um segundo cargo", async () => {
-    const result = await upsertCandidateAction({ error: null }, form({ position_id_2: CARGO_B }));
-    expect(result.error).toMatch(/composição da eleição não pode mais mudar/);
-    expect(updates).toHaveLength(0);
-  });
-
-  it("recusa REMOVER um dos dois cargos", async () => {
-    // O candidato tem dois cargos e o formulário devolve só um: uma
-    // comparação que só olhasse "todo cargo enviado já existia" deixaria
-    // isso passar, e o segundo cargo seria apagado.
-    candidatoAtual = {
-      full_name: "Ana Souza",
-      active: true,
-      display_order: 3,
-      candidate_positions: [{ position_id: CARGO_A }, { position_id: CARGO_B }],
-      photo_path: null,
-      video_url: null,
-    };
-    const result = await upsertCandidateAction({ error: null }, form());
-    expect(result.error).toMatch(/composição da eleição não pode mais mudar/);
-    expect(updates).toHaveLength(0);
-  });
-
-  it("recusa trocar a ordem de exibição", async () => {
-    const result = await upsertCandidateAction({ error: null }, form({ display_order: "9" }));
-    expect(result.error).toMatch(/composição da eleição não pode mais mudar/);
-    expect(updates).toHaveLength(0);
-  });
-
-  it("recusa inativar pelo formulário", async () => {
-    const data = form();
-    data.delete("active");
-    const result = await upsertCandidateAction({ error: null }, data);
-    expect(result.error).toMatch(/composição da eleição não pode mais mudar/);
-    expect(updates).toHaveLength(0);
-  });
-
-  it("recusa cadastrar um candidato novo", async () => {
-    const data = form();
-    data.delete("id");
-    const result = await upsertCandidateAction({ error: null }, data);
-    expect(result.error).toMatch(/não é possível cadastrar novos candidatos/);
-    expect(updates).toHaveLength(0);
-  });
-
-  it("ACEITA editar os campos informativos, preservando a composição", async () => {
-    // O caminho de sucesso termina em `redirect()`, que lança: chegar até
-    // ele já significa que a guarda NÃO recusou.
-    await expect(
-      upsertCandidateAction(
-        { error: null },
-        form({
-          tagline: "Pela turma",
-          presentation: "Apresentação nova",
-          proposals: "Propostas novas",
-          video_url: "https://www.youtube.com/watch?v=aaaaaaaaaaa",
-        }),
-      ),
-    ).rejects.toThrow("NEXT_REDIRECT");
-
-    expect(updates.at(0)).toMatchObject({
-      tagline: "Pela turma",
-      presentation: "Apresentação nova",
-      proposals: "Propostas novas",
-      full_name: "Ana Souza",
-      display_order: 3,
-      active: true,
+    expect(rpcCalls.map((c) => c.fn)).toEqual(["save_candidate"]);
+    expect(rpcCalls[0].args).toMatchObject({
+      p_candidate_id: CANDIDATO,
+      p_full_name: "Ana Souza",
+      p_display_order: 3,
+      p_active: true,
+      p_position_ids: [CARGO_A],
     });
   });
 
-  it("com a votação ainda não liberada, trocar nome e cargo é permitido", async () => {
-    votingReleasedAt = null;
+  it("NÃO apaga nem recria candidate_positions por conta própria", async () => {
+    // O DELETE seguido de INSERT era o que deixava um cargo sem disputa no
+    // intervalo entre as duas chamadas, permitindo uma cédula incompleta.
+    await expect(
+      upsertCandidateAction({ error: null }, form({ presentation: "Texto novo" })),
+    ).rejects.toThrow("NEXT_REDIRECT");
+
+    expect(escritasDiretas).toEqual([]);
+  });
+
+  it("recusa dois cargos iguais antes de chegar ao banco", async () => {
+    const result = await upsertCandidateAction(
+      { error: null },
+      form({ position_id_1: CARGO_A, position_id_2: CARGO_A }),
+    );
+    expect(result.error).toMatch(/cargos diferentes/);
+    expect(rpcCalls).toHaveLength(0);
+  });
+
+  it("aceita os mesmos dois cargos em ordem trocada", async () => {
     await expect(
       upsertCandidateAction(
         { error: null },
-        form({ full_name: "Outro Nome", position_id_1: CARGO_B }),
+        form({ position_id_1: CARGO_B, position_id_2: CARGO_A }),
       ),
     ).rejects.toThrow("NEXT_REDIRECT");
-    expect(updates.at(0)).toMatchObject({ full_name: "Outro Nome" });
+    expect(rpcCalls[0].args.p_position_ids).toEqual([CARGO_B, CARGO_A]);
   });
 });
 
-describe("setCandidateActiveAction com a composição congelada", () => {
-  it("recusa inativar", async () => {
-    await expect(setCandidateActiveAction(CANDIDATO, false)).rejects.toThrow("COMPOSITION_FROZEN");
-    expect(updates).toHaveLength(0);
+describe("tradução das recusas do banco", () => {
+  for (const [codigo, trecho] of [
+    ["COMPOSITION_FROZEN", /composição da eleição não pode mais mudar/],
+    ["COMPOSITION_FROZEN_CREATE", /não é possível cadastrar novos candidatos/],
+    ["DUPLICATE_POSITIONS", /cargos diferentes/],
+    ["INVALID_POSITIONS", /cargos válidos/],
+    ["CANDIDATE_NOT_FOUND", /não encontrado/],
+  ] as const) {
+    it(`${codigo} vira mensagem para o administrador`, async () => {
+      rpcError = { message: codigo };
+      const result = await upsertCandidateAction({ error: null }, form());
+      expect(result.error).toMatch(trecho);
+    });
+  }
+
+  it("não vaza detalhe interno de um erro desconhecido", async () => {
+    rpcError = { message: 'null value in column "x" violates not-null constraint' };
+    const result = await upsertCandidateAction({ error: null }, form());
+    expect(result.error).toBe("Não foi possível salvar o candidato.");
+  });
+});
+
+describe("chamadas externas ficam fora da transação", () => {
+  it("a capa é baixada ANTES de save_candidate", async () => {
+    const ordem: string[] = [];
+    ensureYouTubeThumbnail.mockImplementation(async () => {
+      ordem.push("capa");
+      return { stored: true, path: "p", created: true };
+    });
+
+    await expect(
+      upsertCandidateAction(
+        { error: null },
+        form({ video_url: "https://www.youtube.com/watch?v=aaaaaaaaaaa" }),
+      ),
+    ).rejects.toThrow("NEXT_REDIRECT");
+
+    ordem.push("save");
+    expect(ordem).toEqual(["capa", "save"]);
   });
 
-  it("recusa reativar", async () => {
-    await expect(setCandidateActiveAction(CANDIDATO, true)).rejects.toThrow("COMPOSITION_FROZEN");
-    expect(updates).toHaveLength(0);
+  it("a capa criada agora é removida quando a gravação falha", async () => {
+    rpcError = { message: "COMPOSITION_FROZEN" };
+    const result = await upsertCandidateAction(
+      { error: null },
+      form({ video_url: "https://www.youtube.com/watch?v=aaaaaaaaaaa" }),
+    );
+
+    expect(result.error).toMatch(/composição/);
+    expect(deleteYouTubeThumbnail).toHaveBeenCalledWith(
+      CANDIDATO,
+      "https://www.youtube.com/watch?v=aaaaaaaaaaa",
+    );
   });
 
-  it("permite antes da liberação", async () => {
-    votingReleasedAt = null;
+  it("uma capa que já existia NÃO é removida pela falha", async () => {
+    // `created: false` significa que a capa já estava lá antes desta
+    // gravação: apagá-la deixaria o candidato sem capa por causa de um
+    // erro que não a criou.
+    ensureYouTubeThumbnail.mockResolvedValue({ stored: true, path: "p", created: false });
+    rpcError = { message: "COMPOSITION_FROZEN" };
+
+    await upsertCandidateAction(
+      { error: null },
+      form({ video_url: "https://www.youtube.com/watch?v=aaaaaaaaaaa" }),
+    );
+    expect(deleteYouTubeThumbnail).not.toHaveBeenCalled();
+  });
+});
+
+describe("setCandidateActiveAction", () => {
+  it("delega ao banco em vez de verificar antes de escrever", async () => {
     await setCandidateActiveAction(CANDIDATO, false);
-    expect(updates).toContainEqual({ active: false });
+    expect(rpcCalls).toEqual([
+      { fn: "set_candidate_active", args: { p_candidate_id: CANDIDATO, p_active: false } },
+    ]);
+    expect(escritasDiretas).toEqual([]);
+  });
+
+  it("propaga a recusa do banco", async () => {
+    rpcError = { message: "COMPOSITION_FROZEN" };
+    await expect(setCandidateActiveAction(CANDIDATO, false)).rejects.toThrow("COMPOSITION_FROZEN");
+  });
+});
+
+describe("electionIsFrozen continua servindo à tela", () => {
+  it("congelada quando existe carimbo de liberação", async () => {
+    expect(await electionIsFrozen()).toBe(true);
+  });
+
+  it("não congelada antes da liberação", async () => {
+    votingReleasedAt = null;
+    expect(await electionIsFrozen()).toBe(false);
   });
 });

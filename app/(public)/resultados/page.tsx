@@ -5,8 +5,10 @@ import { getActivePositions } from "@/lib/election/positions";
 import {
   getPublishedResults,
   getRunoffRounds,
+  getVacatedSeatsByPosition,
   type ResultSnapshotRow,
 } from "@/lib/election/results";
+import { computeSeatGaps, publicSeatGapLabel } from "@/lib/election/seat-gaps";
 import { candidatePhotoUrl } from "@/lib/media/candidate-photo";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -51,10 +53,11 @@ export default async function ResultadosPage() {
     );
   }
 
-  const [positions, results, runoffRounds] = await Promise.all([
+  const [positions, results, runoffRounds, vacatedSeats] = await Promise.all([
     getActivePositions(),
     getPublishedResults(election.id),
     getRunoffRounds(election.id),
+    getVacatedSeatsByPosition(election.id),
   ]);
 
   const roundsByPosition = new Map<string, (typeof runoffRounds)[number][]>();
@@ -92,7 +95,7 @@ export default async function ResultadosPage() {
             .filter((r) => r.candidate_id !== null);
           const nullRow = rows.find((r) => r.candidate_id === null);
 
-          // Nenhum snapshot para o cargo: não havia candidato nenhum. A
+          // Nenhum snapshot para o cargo: não havia candidatura nenhuma. A
           // seção continua aparecendo para registrar as vagas vazias —
           // sumir daria a impressão de que o cargo não existiu.
           if (rows.length === 0) {
@@ -101,11 +104,8 @@ export default async function ResultadosPage() {
                 <h2 className="mb-3 text-lg font-semibold text-foreground">{position.name}</h2>
                 <Card>
                   <p className="p-4 text-sm text-foreground-muted">
-                    Nenhuma candidatura: {position.vacancies}{" "}
-                    {position.vacancies === 1
-                      ? "vaga não foi preenchida"
-                      : "vagas não foram preenchidas"}
-                    .
+                    Nenhuma candidatura registrada.{" "}
+                    {publicSeatGapLabel("sem_candidatura", position.vacancies)}
                   </p>
                 </Card>
               </section>
@@ -115,8 +115,20 @@ export default async function ResultadosPage() {
           // Cargo sem disputa: ninguém votou nele. Nada de contagem, nada de
           // classificação, nada de "votos nulos" — só quem ficou com a vaga.
           const semDisputa = rows.some((r) => r.unopposed);
-          const eleitos = rows.filter((r) => r.elected).length;
-          const vagasSemPreenchimento = Math.max(position.vacancies - eleitos, 0);
+          // A CAUSA não sai da subtração: a mesma conta descreve um cargo
+          // deserto e um cargo esvaziado por decisão de cargo duplo. Mesma
+          // função que a revisão administrativa usa, para as duas telas
+          // nunca divergirem sobre o motivo.
+          const seatGaps = computeSeatGaps({
+            vacancies: position.vacancies,
+            electedCount: rows.filter((r) => r.elected).length,
+            vacatedByDualWinner: vacatedSeats.get(position.id) ?? 0,
+            // Esta tela só existe depois da publicação, e `publish_results`
+            // recusa publicar com empate pendente. `tie_break_needed` nem é
+            // lido aqui: é dado de apuração, não de resultado divulgado.
+            seatsInRunoff: 0,
+            hasPendingTie: false,
+          });
 
           return (
             <section key={position.id}>
@@ -177,15 +189,11 @@ export default async function ResultadosPage() {
                     </span>
                   </div>
                 )}
-                {vagasSemPreenchimento > 0 && (
-                  <div className="p-4 text-sm text-foreground-muted">
-                    {vagasSemPreenchimento}{" "}
-                    {vagasSemPreenchimento === 1
-                      ? "vaga não foi preenchida"
-                      : "vagas não foram preenchidas"}{" "}
-                    por falta de candidatos.
+                {seatGaps.map((gap) => (
+                  <div key={gap.reason} className="p-4 text-sm text-foreground-muted">
+                    {publicSeatGapLabel(gap.reason, gap.seats)}
                   </div>
-                )}
+                ))}
               </Card>
 
               {/* Segunda rodada: a votação da eleição principal fica acima,

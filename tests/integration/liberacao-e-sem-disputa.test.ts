@@ -353,3 +353,154 @@ describe("apuração de cargos sem disputa", () => {
     await expect(q("select publish_results($1)", [electionId])).resolves.toBeTruthy();
   });
 });
+
+describe("E — limites da janela de votação na liberação", () => {
+  async function janela(inicioDias: number, fimDias: number) {
+    const id = await createUnreleasedElection();
+    await q(
+      `update election_phases set starts_on = current_date + ($2)::int,
+                                  ends_on = current_date + ($3)::int
+        where election_id = $1 and phase_key = 'votacao'`,
+      [id, inicioDias, fimDias],
+    );
+    return id;
+  }
+
+  it("antes da janela: recusa", async () => {
+    const id = await janela(5, 6);
+    await expect(q("select release_voting($1)", [id])).rejects.toThrow(/VOTING_NOT_STARTED/);
+  });
+
+  it("durante a janela: libera", async () => {
+    const id = await janela(-1, 1);
+    await expect(q("select release_voting($1)", [id])).resolves.toBeTruthy();
+  });
+
+  it("depois da janela: recusa, sem carimbar nada", async () => {
+    // Liberar aqui abriria uma urna que compute_election_status já trata
+    // como encerrada: o painel diria "liberado" e o eleitorado, "encerrada".
+    const id = await janela(-10, -5);
+    await expect(q("select release_voting($1)", [id])).rejects.toThrow(/VOTING_WINDOW_ENDED/);
+
+    const [e] = await q("select voting_released_at from elections where id = $1", [id]);
+    expect(e.voting_released_at).toBeNull();
+    expect(await status(id)).not.toBe("votacao_em_andamento");
+  });
+
+  it("modal carregado durante a janela e confirmado depois: recusa", async () => {
+    const id = await janela(-1, 1);
+    // A janela fecha entre abrir o modal e confirmar.
+    await q(
+      `update election_phases set ends_on = current_date - 1
+        where election_id = $1 and phase_key = 'votacao'`,
+      [id],
+    );
+    await expect(q("select release_voting($1)", [id])).rejects.toThrow(/VOTING_WINDOW_ENDED/);
+  });
+
+  it("uma liberação já feita continua idempotente mesmo com a janela vencida", async () => {
+    // O congelamento já valeu e a votação aconteceu: recusar um reenvio
+    // idempotente só produziria um erro que ninguém tem como resolver.
+    const id = await janela(-1, 1);
+    const [primeira] = await q("select release_voting($1) as t", [id]);
+    await q(
+      `update election_phases set ends_on = current_date - 1
+        where election_id = $1 and phase_key = 'votacao'`,
+      [id],
+    );
+    const [segunda] = await q("select release_voting($1) as t", [id]);
+    expect(segunda.t).toEqual(primeira.t);
+  });
+
+  it("encerramento manual continua tendo precedência sobre a janela", async () => {
+    const id = await janela(-1, 1);
+    await closeVoting(id);
+    await expect(q("select release_voting($1)", [id])).rejects.toThrow(/VOTING_ALREADY_CLOSED/);
+  });
+
+  it("janela ausente e eleição inexistente seguem com os erros próprios", async () => {
+    const semJanela = await createUnreleasedElection();
+    await q(`delete from election_phases where election_id = $1 and phase_key = 'votacao'`, [
+      semJanela,
+    ]);
+    await expect(q("select release_voting($1)", [semJanela])).rejects.toThrow(
+      /VOTING_WINDOW_NOT_CONFIGURED/,
+    );
+
+    await expect(
+      q("select release_voting('00000000-0000-0000-0000-000000000000')"),
+    ).rejects.toThrow(/ELECTION_NOT_FOUND/);
+  });
+});
+
+describe("confirmação com composição desatualizada", () => {
+  it("a digital acompanha a composição e recusa a liberação quando ela muda", async () => {
+    const id = await createUnreleasedElection();
+    const pos = await createPosition({ vacancies: 1, votesPerVoter: 1 });
+    await createCandidate("Original A", [pos.id]);
+    await createCandidate("Original B", [pos.id]);
+
+    // O administrador abre o modal: este é o estado que ele leu.
+    const [antes] = await q("select composition_digest() as d");
+
+    // Outra pessoa acrescenta um candidato.
+    await createCandidate("Chegou Depois", [pos.id]);
+    const [depois] = await q("select composition_digest() as d");
+    expect(depois.d).not.toEqual(antes.d);
+
+    await expect(q("select release_voting($1, $2)", [id, antes.d as string])).rejects.toThrow(
+      /COMPOSITION_CHANGED/,
+    );
+    const [e] = await q("select voting_released_at from elections where id = $1", [id]);
+    expect(e.voting_released_at).toBeNull();
+
+    // Recarregando o resumo, a liberação passa.
+    await expect(q("select release_voting($1, $2)", [id, depois.d as string])).resolves.toBeTruthy();
+  });
+
+  it("a digital muda quando um candidato é inativado", async () => {
+    await createUnreleasedElection();
+    const pos = await createPosition({ vacancies: 1, votesPerVoter: 1 });
+    await createCandidate("Fica", [pos.id]);
+    const sai = await createCandidate("Sai", [pos.id]);
+
+    const [antes] = await q("select composition_digest() as d");
+    await q("update candidates set active = false where id = $1", [sai]);
+    const [depois] = await q("select composition_digest() as d");
+
+    // Inativar tira o cargo da disputa: é exatamente o tipo de mudança que
+    // o resumo precisa refletir.
+    expect(depois.d).not.toEqual(antes.d);
+  });
+
+  it("a digital muda quando as vagas do cargo mudam", async () => {
+    await createUnreleasedElection();
+    const pos = await createPosition({ vacancies: 1, votesPerVoter: 1 });
+    await createCandidate("Um", [pos.id]);
+    await createCandidate("Dois", [pos.id]);
+
+    const [antes] = await q("select composition_digest() as d");
+    await q("update positions set vacancies = 2 where id = $1", [pos.id]);
+    const [depois] = await q("select composition_digest() as d");
+    expect(depois.d).not.toEqual(antes.d);
+  });
+
+  it("a digital NÃO muda por edição informativa", async () => {
+    await createUnreleasedElection();
+    const pos = await createPosition({ vacancies: 1, votesPerVoter: 1 });
+    const a = await createCandidate("Informativo", [pos.id]);
+    await createCandidate("Outro", [pos.id]);
+
+    const [antes] = await q("select composition_digest() as d");
+    await q(`update candidates set presentation = 'texto novo' where id = $1`, [a]);
+    const [depois] = await q("select composition_digest() as d");
+    // Trocar apresentação não muda a cédula: exigir nova revisão aqui só
+    // criaria atrito sem proteger nada.
+    expect(depois.d).toEqual(antes.d);
+  });
+
+  it("sem digital informada, a liberação continua funcionando", async () => {
+    const id = await createUnreleasedElection();
+    await expect(q("select release_voting($1, null)", [id])).resolves.toBeTruthy();
+  });
+});

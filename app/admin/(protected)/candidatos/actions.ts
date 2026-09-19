@@ -8,7 +8,6 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { uploadCandidatePhoto, deleteCandidatePhoto, PhotoUploadError } from "@/lib/admin/photo-upload";
 import { logAdminAction } from "@/lib/admin/audit-log";
 import { requireAdminSession } from "@/lib/admin/session";
-import { electionIsFrozen } from "@/lib/election/composition-freeze";
 import { canonicalYouTubeUrl } from "@/lib/media/youtube";
 import {
   ensureYouTubeThumbnail,
@@ -21,13 +20,6 @@ export type CandidateFormState = { error: string | null };
 const COMPOSICAO_CONGELADA =
   "A votação já foi liberada: a composição da eleição não pode mais mudar. " +
   "Foto, frase, apresentação, propostas e vídeo continuam editáveis.";
-
-/** Mesmos cargos, em qualquer ordem. */
-function mesmosCargos(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  const set = new Set(a);
-  return b.every((id) => set.has(id));
-}
 
 /**
  * Qualquer alteração em candidato (criar, editar, ativar, desativar,
@@ -68,40 +60,6 @@ export async function upsertCandidateAction(
 
   const supabase = createServiceClient();
 
-  // Composição congelada desde a liberação da votação. A recusa é aqui, no
-  // servidor: campo readOnly na tela é cortesia, não controle.
-  //
-  // Só é recusado o que REALMENTE muda — reenviar o mesmo nome e os mesmos
-  // cargos junto com um vídeo novo continua valendo, que é o caso de uso
-  // que a regra precisa preservar.
-  const congelada = await electionIsFrozen();
-  if (congelada) {
-    if (!parsed.data.id) {
-      return { error: "A votação já foi liberada: não é possível cadastrar novos candidatos." };
-    }
-    const { data: atual } = await supabase
-      .from("candidates")
-      .select("full_name, active, display_order, candidate_positions ( position_id )")
-      .eq("id", parsed.data.id)
-      .maybeSingle();
-
-    if (!atual) return { error: "Candidato não encontrado." };
-
-    const cargosAtuais = (
-      (atual as unknown as { candidate_positions: { position_id: string }[] }).candidate_positions ??
-      []
-    ).map((row) => row.position_id);
-
-    if (
-      atual.full_name !== parsed.data.full_name ||
-      atual.active !== parsed.data.active ||
-      atual.display_order !== parsed.data.display_order ||
-      !mesmosCargos(cargosAtuais, parsed.data.position_ids)
-    ) {
-      return { error: COMPOSICAO_CONGELADA };
-    }
-  }
-
   let photoPath: string | undefined;
 
   const photoFile = formData.get("photo");
@@ -116,19 +74,10 @@ export async function upsertCandidateAction(
     }
   }
 
-  const record = {
-    full_name: parsed.data.full_name,
-    tagline: parsed.data.tagline || null,
-    presentation: parsed.data.presentation || null,
-    proposals: parsed.data.proposals || null,
-    // Grava a forma canônica: preserva Short vs padrão (é ela que define a
-    // proporção), descarta parâmetros de rastreamento e mantém m.youtube.com
-    // dentro da CHECK de candidates.video_url, sem precisar de migration.
-    video_url: canonicalYouTubeUrl(parsed.data.video_url),
-    active: parsed.data.active,
-    display_order: parsed.data.display_order,
-    ...(photoPath ? { photo_path: photoPath } : {}),
-  };
+  // Forma canônica do vídeo: preserva Short vs padrão (é ela que define a
+  // proporção), descarta parâmetros de rastreamento e mantém m.youtube.com
+  // dentro da CHECK de candidates.video_url.
+  const videoUrl = canonicalYouTubeUrl(parsed.data.video_url);
 
   let candidateId = parsed.data.id;
   let previousPhotoPath: string | null = null;
@@ -149,53 +98,69 @@ export async function upsertCandidateAction(
     // O vídeo mudou? A comparação é pelo ID normalizado: trocar
     // youtu.be/ID por watch?v=ID é o MESMO vídeo e não pode disparar um
     // novo download nem apagar a capa existente.
-    videoChanged = !sameVideo(previousVideoUrl, record.video_url);
+    videoChanged = !sameVideo(previousVideoUrl, videoUrl);
 
     // Capa ANTES do banco: se falhar, o candidato ainda é salvo e o player
     // usa o placeholder. Se o banco falhar depois, a capa órfã é removida
     // por compensação — mas só se tiver sido criada agora.
     //
-    // Chamado em TODA gravação com vídeo, não só quando o vídeo muda: é o
-    // que dá capa a candidatos cadastrados antes desta funcionalidade e o
-    // que permite uma nova tentativa depois de uma falha transitória.
-    // Quando a capa já está lá, isto custa uma listagem e nenhum fetch.
-    if (record.video_url) {
-      const capa = await ensureYouTubeThumbnail(candidateId, record.video_url);
+    // Fora da transação de propósito: `save_candidate` trava a linha da
+    // eleição, e segurar esse lock durante um download externo bloquearia
+    // a liberação da votação por segundos.
+    if (videoUrl) {
+      const capa = await ensureYouTubeThumbnail(candidateId, videoUrl);
       capaCriadaAgora = capa.stored && capa.created;
     }
-
-    const { error } = await supabase.from("candidates").update(record).eq("id", candidateId);
-    if (error) {
-      if (capaCriadaAgora && record.video_url) {
-        await deleteYouTubeThumbnail(candidateId, record.video_url);
-      }
-      return { error: "Não foi possível salvar o candidato." };
-    }
-  } else {
-    const { data, error } = await supabase.from("candidates").insert(record).select("id").single();
-    if (error || !data) return { error: "Não foi possível criar o candidato." };
-    const novoId = data.id as string;
-    candidateId = novoId;
-
-    // Na criação o id só existe depois do insert, então a capa vem em
-    // seguida. Falhar aqui não desfaz o candidato: ele fica com o vídeo e
-    // com o placeholder, e a próxima gravação tenta de novo.
-    if (record.video_url) await ensureYouTubeThumbnail(novoId, record.video_url);
   }
 
-  await supabase.from("candidate_positions").delete().eq("candidate_id", candidateId);
-  const { error: positionsError } = await supabase
-    .from("candidate_positions")
-    .insert(parsed.data.position_ids.map((position_id) => ({ candidate_id: candidateId, position_id })));
+  // Uma transação: verifica o congelamento com a linha da eleição travada,
+  // grava o candidato e ajusta os cargos só se o conjunto mudou. Nada aqui
+  // pode ficar pela metade, e nada pode escapar por entre duas chamadas.
+  const { data: savedId, error } = await supabase.rpc("save_candidate", {
+    p_candidate_id: candidateId ?? null,
+    p_full_name: parsed.data.full_name,
+    p_tagline: parsed.data.tagline || null,
+    p_presentation: parsed.data.presentation || null,
+    p_proposals: parsed.data.proposals || null,
+    p_video_url: videoUrl || null,
+    p_active: parsed.data.active,
+    p_display_order: parsed.data.display_order,
+    p_position_ids: parsed.data.position_ids,
+    p_photo_path: photoPath ?? null,
+  });
 
-  if (positionsError) {
-    return { error: "Não foi possível salvar os cargos do candidato (máximo 2)." };
+  if (error) {
+    // A capa recém-criada vira lixo se a gravação não aconteceu.
+    if (capaCriadaAgora && candidateId && videoUrl) {
+      await deleteYouTubeThumbnail(candidateId, videoUrl);
+    }
+    const code = error.message.trim();
+    if (code === "COMPOSITION_FROZEN") return { error: COMPOSICAO_CONGELADA };
+    if (code === "COMPOSITION_FROZEN_CREATE") {
+      return { error: "A votação já foi liberada: não é possível cadastrar novos candidatos." };
+    }
+    if (code === "DUPLICATE_POSITIONS") return { error: "Escolha dois cargos diferentes." };
+    if (code === "INVALID_POSITIONS") {
+      return { error: "Selecione um ou dois cargos válidos para o candidato." };
+    }
+    if (code === "CANDIDATE_NOT_FOUND") return { error: "Candidato não encontrado." };
+    return { error: parsed.data.id ? "Não foi possível salvar o candidato." : "Não foi possível criar o candidato." };
+  }
+
+  const eraCriacao = !candidateId;
+  candidateId = savedId as string;
+
+  // Na criação o id só existe depois da gravação, então a capa vem em
+  // seguida. Falhar aqui não desfaz o candidato: ele fica com o vídeo e o
+  // placeholder, e a próxima gravação tenta de novo.
+  if (eraCriacao && videoUrl) {
+    await ensureYouTubeThumbnail(candidateId, videoUrl);
   }
 
   // Só agora, com o banco confirmado: a tela já aponta para a capa nova (o
   // caminho é derivado do vídeo atual), então isto é coleta de lixo — falhar
   // deixa um arquivo órfão, nunca uma capa errada em exibição.
-  if (videoChanged && previousVideoUrl && candidateId) {
+  if (videoChanged && previousVideoUrl) {
     await deleteYouTubeThumbnail(candidateId, previousVideoUrl);
   }
 
@@ -218,13 +183,15 @@ export async function setCandidateActiveAction(candidateId: string, active: bool
   await requireAdminSession();
   // Ativar/inativar é o caminho mais curto para mudar a composição: um
   // candidato a menos pode tirar o cargo inteiro da cédula (cargo sem
-  // disputa não vai à urna). Bloqueado junto com o resto.
-  if (await electionIsFrozen()) {
-    throw new Error("COMPOSITION_FROZEN");
-  }
+  // disputa não vai à urna). A recusa acontece no banco, com a linha da
+  // eleição travada — uma verificação em TypeScript antes da escrita
+  // deixaria passar quem chegasse junto com a liberação.
   const supabase = createServiceClient();
-  const { error } = await supabase.from("candidates").update({ active }).eq("id", candidateId);
-  if (error) throw error;
+  const { error } = await supabase.rpc("set_candidate_active", {
+    p_candidate_id: candidateId,
+    p_active: active,
+  });
+  if (error) throw new Error(error.message.trim());
 
   await logAdminAction(active ? "CANDIDATE_REACTIVATED" : "CANDIDATE_DEACTIVATED", { candidateId });
   invalidateCandidateCaches();

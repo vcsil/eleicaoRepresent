@@ -52,9 +52,10 @@ const { releaseVotingAction } = await import("@/app/admin/(protected)/votacao/ac
 
 const ELECTION_ID = "11111111-1111-4111-8111-111111111111";
 
-function form(): FormData {
+function form(digest?: string): FormData {
   const data = new FormData();
   data.set("election_id", ELECTION_ID);
+  if (digest !== undefined) data.set("composition_digest", digest);
   return data;
 }
 
@@ -71,7 +72,31 @@ describe("releaseVotingAction", () => {
   it("chama release_voting no banco — a decisão não é do TypeScript", async () => {
     const result = await releaseVotingAction({ error: null }, form());
     expect(result.error).toBeNull();
-    expect(rpcCalls).toEqual([["release_voting", { p_election_id: ELECTION_ID }]]);
+    expect(rpcCalls).toEqual([
+      ["release_voting", { p_election_id: ELECTION_ID, p_expected_digest: null }],
+    ]);
+  });
+
+  it("repassa ao banco a digital da composição que o resumo descreveu", async () => {
+    // O banco confere a digital com a linha da eleição já travada: é o que
+    // impede liberar uma composição diferente da que foi revisada.
+    await releaseVotingAction({ error: null }, form("abc123"));
+    expect(rpcCalls[0][1]).toEqual({
+      p_election_id: ELECTION_ID,
+      p_expected_digest: "abc123",
+    });
+  });
+
+  it("traduz COMPOSITION_CHANGED pedindo nova revisão", async () => {
+    rpcError = { message: "COMPOSITION_CHANGED" };
+    const result = await releaseVotingAction({ error: null }, form("abc123"));
+    expect(result.error).toMatch(/mudou desde que este resumo foi carregado/);
+  });
+
+  it("traduz VOTING_WINDOW_ENDED apontando o cronograma", async () => {
+    rpcError = { message: "VOTING_WINDOW_ENDED" };
+    const result = await releaseVotingAction({ error: null }, form());
+    expect(result.error).toMatch(/período de votação do cronograma já terminou/);
   });
 
   it("exige sessão administrativa", async () => {

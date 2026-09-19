@@ -57,7 +57,14 @@ export const candidateUpsertSchema = z
     video_url: z.union([youtubeUrlSchema, z.literal("")]).optional().nullable(),
     active: z.boolean(),
     display_order: z.number().int().min(0).max(9999),
-    position_ids: z.array(z.string().uuid()).min(1).max(2),
+    // `.refine` e não só `.max(2)`: [A,A] tem tamanho 2 e passaria. O
+    // duplicado quebrava o índice único de candidate_positions DEPOIS do
+    // DELETE dos vínculos antigos, deixando o candidato sem cargo nenhum.
+    position_ids: z
+      .array(z.string().uuid())
+      .min(1)
+      .max(2)
+      .refine((ids) => new Set(ids).size === ids.length, "Escolha dois cargos diferentes."),
   })
   .strict();
 

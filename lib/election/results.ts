@@ -1,6 +1,7 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
 import { createAnonClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { CACHE_TAGS } from "@/lib/cache/tags";
 import { compareCandidateResults } from "@/lib/election/display-order";
 
@@ -126,3 +127,56 @@ export const getRunoffRounds = unstable_cache(fetchRunoffRounds, ["runoff-rounds
   tags: [CACHE_TAGS.publishedResults],
   revalidate: false,
 });
+
+
+/**
+ * Vagas que ficaram vazias por decisão de cargo duplo — o eleito assumiu o
+ * outro cargo e não havia candidato remanescente para promover.
+ *
+ * Existe para a tela pública não atribuir essas vagas a "falta de
+ * candidatos": a diferença `vagas − eleitos` é a mesma nos dois casos, e
+ * só o registro em `seat_reassignments` distingue um do outro.
+ */
+async function fetchVacatedSeats(electionId: string): Promise<Map<string, number>> {
+  // Cliente de serviço, e não o anônimo: `seat_reassignments` é
+  // deny-by-default e não tem (nem deve ganhar) policy de leitura pública —
+  // antes da divulgação ela revelaria composição apurada.
+  //
+  // A porta é fechada AQUI, não no chamador: a função só devolve algo
+  // depois de `results_published_at`. Assim nem uma chamada equivocada nem
+  // uma entrada de cache anterior à publicação conseguem vazar resultado
+  // parcial.
+  const supabase = createServiceClient();
+
+  const { data: election, error: electionError } = await supabase
+    .from("elections")
+    .select("results_published_at")
+    .eq("id", electionId)
+    .maybeSingle();
+
+  if (electionError) throw electionError;
+  if (!election?.results_published_at) return new Map();
+
+  const { data, error } = await supabase
+    .from("seat_reassignments")
+    .select("position_id, promoted_candidate_id")
+    .eq("election_id", electionId);
+
+  if (error) throw error;
+
+  const porCargo = new Map<string, number>();
+  for (const row of (data ?? []) as {
+    position_id: string;
+    promoted_candidate_id: string | null;
+  }[]) {
+    if (row.promoted_candidate_id !== null) continue;
+    porCargo.set(row.position_id, (porCargo.get(row.position_id) ?? 0) + 1);
+  }
+  return porCargo;
+}
+
+export const getVacatedSeatsByPosition = unstable_cache(
+  fetchVacatedSeats,
+  ["vacated-seats"],
+  { tags: [CACHE_TAGS.publishedResults], revalidate: false },
+);

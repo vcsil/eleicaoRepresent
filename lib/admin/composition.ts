@@ -12,6 +12,13 @@ export type CompositionPosition = {
 export type CompositionPreview = {
   contested: CompositionPosition[];
   uncontested: CompositionPosition[];
+  /**
+   * Digital do estado que este resumo descreve. Vai junto na confirmação e
+   * é reconferida pelo banco dentro da transação de liberação: se alguém
+   * mexeu nos candidatos nesse meio-tempo, a liberação é recusada em vez
+   * de abrir a urna com uma composição que ninguém revisou.
+   */
+  digest: string;
 };
 
 /**
@@ -25,8 +32,9 @@ export type CompositionPreview = {
 export async function getCompositionPreview(): Promise<CompositionPreview> {
   const supabase = createServiceClient();
 
-  const [contestedIds, positionsResult, linksResult] = await Promise.all([
+  const [contestedIds, digest, positionsResult, linksResult] = await Promise.all([
     getContestedPositionIds(),
+    getCompositionDigest(),
     supabase
       .from("positions")
       .select("id, name, vacancies")
@@ -65,5 +73,13 @@ export async function getCompositionPreview(): Promise<CompositionPreview> {
     (contestedSet.has(row.id) ? contested : uncontested).push(entry);
   }
 
-  return { contested, uncontested };
+  return { contested, uncontested, digest };
+}
+
+/** Digital atual da composição, calculada pelo banco. */
+async function getCompositionDigest(): Promise<string> {
+  const supabase = createServiceClient();
+  const { data, error } = await supabase.rpc("composition_digest");
+  if (error) throw error;
+  return (data ?? "") as string;
 }

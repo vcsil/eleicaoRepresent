@@ -52,18 +52,40 @@ export async function releaseVotingAction(
   const electionId = formData.get("election_id");
   if (typeof electionId !== "string") return { error: "Eleição inválida." };
 
+  // Impressão digital da composição que o administrador VIU no resumo. O
+  // banco confere se ela ainda vale, já com a linha da eleição travada —
+  // sem isso, outra pessoa poderia ter mexido nos candidatos entre abrir o
+  // modal e confirmar, e a votação abriria com uma composição que ninguém
+  // revisou.
+  const digest = formData.get("composition_digest");
+
   const supabase = createServiceClient();
-  const { error } = await supabase.rpc("release_voting", { p_election_id: electionId });
+  const { error } = await supabase.rpc("release_voting", {
+    p_election_id: electionId,
+    p_expected_digest: typeof digest === "string" && digest.length > 0 ? digest : null,
+  });
 
   if (error) {
     const code = error.message.trim();
     if (code === "VOTING_NOT_STARTED") {
       return { error: "A votação ainda não começou pelo cronograma." };
     }
+    if (code === "VOTING_WINDOW_ENDED") {
+      return {
+        error:
+          "O período de votação do cronograma já terminou. Ajuste as datas em /admin/cronograma antes de liberar.",
+      };
+    }
     if (code === "VOTING_WINDOW_NOT_CONFIGURED") {
       return { error: "Configure as datas da fase de votação no cronograma antes de liberar." };
     }
     if (code === "VOTING_ALREADY_CLOSED") return { error: "A votação já foi encerrada." };
+    if (code === "COMPOSITION_CHANGED") {
+      return {
+        error:
+          "A lista de candidatos mudou desde que este resumo foi carregado. Recarregue a página e confira a composição antes de liberar.",
+      };
+    }
     return { error: "Não foi possível liberar a votação." };
   }
 

@@ -46,6 +46,7 @@ export default async function AdminVotacaoPage() {
             uncontested={composition.uncontested}
             released={released}
             canRelease={canRelease}
+            compositionDigest={composition.digest}
           />
         </div>
       </div>

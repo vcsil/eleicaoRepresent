@@ -27,12 +27,15 @@ export function ReleaseVotingPanel({
   uncontested,
   released,
   canRelease,
+  compositionDigest,
 }: {
   electionId: string;
   contested: ReleasePreviewPosition[];
   uncontested: ReleasePreviewPosition[];
   released: boolean;
   canRelease: boolean;
+  /** Digital da composição que ESTE resumo descreve (conferida no banco). */
+  compositionDigest: string;
 }) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +46,7 @@ export function ReleaseVotingPanel({
       setError(null);
       const formData = new FormData();
       formData.set("election_id", electionId);
+      formData.set("composition_digest", compositionDigest);
       const result = await releaseVotingAction({ error: null }, formData);
       if (result.error) setError(result.error);
       else setOpen(false);

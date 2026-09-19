@@ -47,14 +47,28 @@ describe.each([
     expect(fonte).toMatch(/semDisputa/);
   });
 
-  it("mostra as vagas que ficaram sem preenchimento", () => {
-    expect(fonte).toContain("vagasSemPreenchimento");
+  it("não refaz a conta da vaga vazia por conta própria", () => {
+    // O comportamento está coberto em `seat-gaps.test.ts`; aqui se
+    // verifica que a tela não voltou a deduzir a causa da subtração — era
+    // ela que anunciava "sem candidato" para vaga em desempate. A pública
+    // chama `computeSeatGaps`; a interna recebe `seatGaps` já pronto de
+    // `getInternalResultsByPosition`.
+    expect(fonte).toMatch(/computeSeatGaps|seatGaps/);
+    expect(fonte).not.toMatch(/position\.vacancies\s*-\s*eleitos/);
+    expect(fonte).not.toMatch(/vagasSemPreenchimento/);
   });
 });
 
 describe("o resultado público não some com um cargo sem nenhuma candidatura", () => {
   it("registra as vagas vazias em vez de omitir a seção", () => {
     expect(publico).toContain("Nenhuma candidatura");
+  });
+
+  it("as duas telas usam a MESMA fonte de causa", () => {
+    // Resultado público e revisão interna não podem divergir sobre por que
+    // uma vaga está vazia.
+    expect(publico).toContain("@/lib/election/seat-gaps");
+    expect(interno).toContain("@/lib/election/seat-gaps");
   });
 });
 
