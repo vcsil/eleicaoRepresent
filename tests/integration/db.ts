@@ -34,7 +34,7 @@ export async function resetDatabase(): Promise<void> {
  * globais (voters/candidates continuam únicas por matrícula/nome, então os
  * testes também geram valores únicos para essas).
  */
-export async function createTestElection(): Promise<string> {
+export async function createTestElection(released = true): Promise<string> {
   const electionId = randomUUID();
   await pool.query(`insert into elections (id, type, name) values ($1, 'general', 'Teste')`, [
     electionId,
@@ -66,7 +66,27 @@ export async function createTestElection(): Promise<string> {
     [electionId, order++],
   );
 
+  // NÃO libera aqui. Desde a migration 0022 a composição congela na
+  // liberação por TRIGGER, então cadastrar cargo ou candidato depois dela
+  // é recusado pelo banco — como na eleição real. Os fixtures montam a
+  // composição primeiro e chamam `releaseVoting` no fim, nessa ordem.
+  void released;
   return electionId;
+}
+
+/**
+ * Libera a votação, como o administrador faria em /admin/votacao.
+ *
+ * Chame DEPOIS de criar cargos e candidatos: a partir daqui a composição
+ * está congelada e o banco recusa alterá-la.
+ */
+export async function releaseVoting(electionId: string): Promise<void> {
+  await pool.query(`select release_voting($1)`, [electionId]);
+}
+
+/** Eleição com a janela aberta mas AINDA NÃO liberada pelo administrador. */
+export async function createUnreleasedElection(): Promise<string> {
+  return createTestElection(false);
 }
 
 export type TestPosition = { id: string; slug: string; votesPerVoter: number; vacancies: number };

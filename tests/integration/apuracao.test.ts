@@ -3,6 +3,7 @@ import {
   pool,
   resetDatabase,
   createTestElection,
+  releaseVoting,
   createPosition,
   createCandidate,
   createVoter,
@@ -42,12 +43,22 @@ describe("compute_results / publish_results (seções 49, 52, 84-86, 97)", () =>
     electionId = await createTestElection();
 
     posTie = await createPosition({ slug: "tie", votesPerVoter: 1, vacancies: 1 });
-    posMulti = await createPosition({ slug: "multi", votesPerVoter: 2, vacancies: 2 });
+    // 1 vaga com 2 candidatos: o cargo precisa ter DISPUTA para entrar na
+    // urna (migration 0020). `votesPerVoter: 2` é o que estes testes
+    // verificam — repetir voto no mesmo candidato e contar nulos — e não
+    // depende do número de vagas. Acrescentar um terceiro candidato, em vez
+    // de reduzir a vaga, criaria um empate em 0 votos e quebraria a
+    // publicação no último teste.
+    posMulti = await createPosition({ slug: "multi", votesPerVoter: 2, vacancies: 1 });
 
     candTieA = await createCandidate("Empate A", [posTie.id]);
     candTieB = await createCandidate("Empate B", [posTie.id]);
     candMultiA = await createCandidate("Multi A", [posMulti.id]);
     candMultiB = await createCandidate("Multi B", [posMulti.id]);
+
+    // A liberação vem DEPOIS da composição: desde a 0022 o banco congela
+    // cargos e candidatos no momento em que a votação abre.
+    await releaseVoting(electionId);
 
     // Empate 1x1 entre candTieA e candTieB.
     await vote("Eleitor 1", [{ candidate_id: candTieA, is_null_vote: false, quantity: 1 }], [

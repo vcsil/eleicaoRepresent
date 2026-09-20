@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { getMainElection, getElectionStatus, ELECTION_STATUS_LABELS } from "@/lib/election/status";
 import { getParticipationPercentage } from "@/lib/election/participation";
+import { getCompositionPreview } from "@/lib/admin/composition";
 import { MetricCard } from "@/components/admin/MetricCard";
 import { ElectionControlPanel } from "@/components/admin/ElectionControlPanel";
+import { ReleaseVotingPanel } from "@/components/admin/ReleaseVotingPanel";
 import { EmptyState } from "@/components/feedback/EmptyState";
 
 export const metadata: Metadata = { title: "Votação — Administração" };
@@ -14,10 +16,17 @@ export default async function AdminVotacaoPage() {
     return <EmptyState title="Nenhuma eleição cadastrada" />;
   }
 
-  const [status, participation] = await Promise.all([
+  const [status, participation, composition] = await Promise.all([
     getElectionStatus(election.id),
     getParticipationPercentage(election.id),
+    getCompositionPreview(),
   ]);
+
+  const released = election.voting_released_at !== null;
+  // Só faz sentido oferecer o botão enquanto a votação está de fato
+  // pendente. Quem decide se pode é `release_voting` — isto apenas evita
+  // mostrar uma ação impossível.
+  const canRelease = !released && status === "aguardando_votacao";
 
   return (
     <div className="max-w-2xl">
@@ -26,6 +35,20 @@ export default async function AdminVotacaoPage() {
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <MetricCard label="Status atual" value={ELECTION_STATUS_LABELS[status]} />
         <MetricCard label="Participação" value={`${participation.toFixed(1)}%`} />
+      </div>
+
+      <div className="mt-8">
+        <h2 className="text-sm font-semibold text-foreground">Abertura da votação</h2>
+        <div className="mt-3">
+          <ReleaseVotingPanel
+            electionId={election.id}
+            voting={composition.voting}
+            nonVoting={composition.nonVoting}
+            released={released}
+            canRelease={canRelease}
+            compositionDigest={composition.digest}
+          />
+        </div>
       </div>
 
       <div className="mt-8">

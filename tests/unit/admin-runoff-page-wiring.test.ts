@@ -97,7 +97,7 @@ describe("as duas visões continuam separadas", () => {
 
   it("/admin/resultados continua sendo a visão da eleição principal", () => {
     expect(resultadosGerais).toContain("getMainElection()");
-    expect(resultadosGerais).toContain("getInternalResults(election.id)");
+    expect(resultadosGerais).toContain("getInternalResultsByPosition(election.id)");
     expect(resultadosGerais).toContain("electionId={election.id}");
   });
 });

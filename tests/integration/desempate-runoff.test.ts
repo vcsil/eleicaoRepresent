@@ -3,6 +3,7 @@ import {
   pool,
   resetDatabase,
   createTestElection,
+  releaseVoting,
   createPosition,
   createCandidate,
   createVoter,
@@ -58,12 +59,37 @@ async function snapshots(electionId: string, positionId?: string): Promise<Row[]
   );
 }
 
-/** Empate 2x2 num cargo de 1 vaga, com 1 nulo — o cenário da simulação. */
-async function setupTiedElection() {
+/**
+ * Empate 2x2 num cargo de 1 vaga, com 1 nulo — o cenário da simulação.
+ *
+ * `extraCandidate` e `extraPosition` existem porque alguns testes precisam
+ * de um candidato ou cargo que NÃO participa do empate. Eles são criados
+ * aqui, antes da liberação: desde a 0022 a composição congela no momento
+ * em que a votação abre, e criá-los depois seria recusado pelo banco —
+ * como seria numa eleição real.
+ */
+async function setupTiedElection(
+  extras: { extraCandidate?: string; extraPosition?: boolean } = {},
+) {
   const electionId = await createTestElection();
   const position = await createPosition({ vacancies: 1, votesPerVoter: 1 });
   const ana = await createCandidate("Ana Monteiro", [position.id]);
   const bruno = await createCandidate("Bruno Tavares", [position.id]);
+
+  // Candidato do mesmo cargo que não entra no empate: recebe 0 voto, fica
+  // em rank 3 e continua fora de runoff_candidates.
+  const extraCandidate = extras.extraCandidate
+    ? await createCandidate(extras.extraCandidate, [position.id])
+    : null;
+
+  // Cargo sem candidato nenhum: não vai à urna e não tem empate.
+  const extraPosition = extras.extraPosition
+    ? await createPosition({ vacancies: 1, votesPerVoter: 1 })
+    : null;
+
+  // A liberação vem DEPOIS da composição: desde a 0022 cargos e candidatos
+  // congelam no momento em que a votação abre.
+  await releaseVoting(electionId);
 
   const voters = [];
   for (let i = 1; i <= 5; i += 1) voters.push(await createVoter(`Eleitor ${i}`));
@@ -77,7 +103,7 @@ async function setupTiedElection() {
   await closeVoting(electionId);
   await computeResults(electionId);
 
-  return { electionId, position, ana, bruno, voters };
+  return { electionId, position, ana, bruno, voters, extraCandidate, extraPosition };
 }
 
 beforeEach(async () => {
@@ -116,6 +142,7 @@ describe("detecção do empate", () => {
     const a = await createCandidate("Primeira", [position.id]);
     const b = await createCandidate("Segunda", [position.id]);
     const c = await createCandidate("Terceira", [position.id]);
+    await releaseVoting(electionId);
 
     const alloc = (x: string, y: string) => ({
       positions: [
@@ -147,8 +174,8 @@ describe("detecção do empate", () => {
 
 describe("criação do desempate", () => {
   it("deriva do banco apenas os candidatos realmente empatados", async () => {
-    const { electionId, position, ana, bruno } = await setupTiedElection();
-    const outro = await createCandidate("Nao Empatado", [position.id]);
+    const { electionId, position, ana, bruno, extraCandidate: outro } =
+      await setupTiedElection({ extraCandidate: "Nao Empatado" });
 
     const runoffId = await createRunoff(electionId, [position.id]);
     const rows = await q(
@@ -185,6 +212,7 @@ describe("criação do desempate", () => {
     const a = await createCandidate("Empatado A", [position.id]);
     const b = await createCandidate("Empatado B", [position.id]);
     const c = await createCandidate("Empatado C", [position.id]);
+    await releaseVoting(electionId);
 
     const ballot = (segundo: string, terceiro: string) => ({
       positions: [
@@ -241,9 +269,10 @@ describe("criação do desempate", () => {
   });
 
   it("recusa cargo sem empate", async () => {
-    const { electionId } = await setupTiedElection();
-    const outroCargo = await createPosition({ vacancies: 1, votesPerVoter: 1 });
-    await expect(createRunoff(electionId, [outroCargo.id])).rejects.toThrow(/NO_TIE_FOR_POSITION/);
+    const { electionId, extraPosition: outroCargo } = await setupTiedElection({
+      extraPosition: true,
+    });
+    await expect(createRunoff(electionId, [outroCargo!.id])).rejects.toThrow(/NO_TIE_FOR_POSITION/);
   });
 
   it("recusa criar um segundo desempate para o mesmo empate", async () => {
@@ -273,6 +302,7 @@ describe("criação do desempate", () => {
   it("recusa desempate numa eleição ainda não apurada", async () => {
     const electionId = await createTestElection();
     const position = await createPosition();
+    await releaseVoting(electionId);
     await expect(createRunoff(electionId, [position.id])).rejects.toThrow(/RESULTS_NOT_COMPUTED/);
   });
 });
@@ -298,8 +328,8 @@ describe("votação do desempate", () => {
   });
 
   it("rejeita voto em candidato que não está no desempate", async () => {
-    const { electionId, position, voters } = await setupTiedElection();
-    const intruso = await createCandidate("Intruso", [position.id]);
+    const { electionId, position, voters, extraCandidate: intruso } =
+      await setupTiedElection({ extraCandidate: "Intruso" });
     const runoffId = await createRunoff(electionId, [position.id]);
 
     await expect(
@@ -308,12 +338,12 @@ describe("votação do desempate", () => {
   });
 
   it("rejeita cédula com cargo que não está em disputa", async () => {
-    const { electionId, position, ana, voters } = await setupTiedElection();
-    const outroCargo = await createPosition({ vacancies: 1, votesPerVoter: 1 });
+    const { electionId, position, ana, voters, extraPosition: outroCargo } =
+      await setupTiedElection({ extraPosition: true });
     const runoffId = await createRunoff(electionId, [position.id]);
 
     await expect(
-      voteAs(runoffId, voters[0].registrationNumber, "Eleitor 1", singleChoice(outroCargo.id, ana)),
+      voteAs(runoffId, voters[0].registrationNumber, "Eleitor 1", singleChoice(outroCargo!.id, ana)),
     ).rejects.toThrow(/INVALID_PAYLOAD/);
   });
 
@@ -510,6 +540,7 @@ describe("eleição ativa (get_current_voting_election)", () => {
   it("devolve a eleição geral enquanto a votação dela está aberta", async () => {
     const electionId = await createTestElection();
     await createPosition({ vacancies: 1, votesPerVoter: 1 });
+    await releaseVoting(electionId);
 
     const [row] = await q("select get_current_voting_election() as e");
     const active = row.e as Record<string, unknown>;

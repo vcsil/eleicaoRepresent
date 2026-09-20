@@ -3,6 +3,7 @@ import {
   pool,
   resetDatabase,
   createTestElection,
+  releaseVoting,
   createPosition,
   createCandidate,
   createVoter,
@@ -35,6 +36,13 @@ describe("resolve_dual_winner_decision (seções 53-54)", () => {
 
     candidateX = await createCandidate("Candidato X", [posP.id, posM.id]);
     candidateY = await createCandidate("Candidato Y", [posM.id]);
+
+    // posP precisa de DISPUTA para entrar na urna (migration 0020): sem um
+    // segundo nome, 1 candidato para 1 vaga sairia da cédula. Este não
+    // recebe voto nenhum — X vence posP por 3 a 0, sem empate.
+    await createCandidate("Candidato Z", [posP.id]);
+
+    await releaseVoting(electionId);
 
     async function vote(fullName: string, pAlloc: string, mAlloc: string) {
       const voter = await createVoter(fullName);

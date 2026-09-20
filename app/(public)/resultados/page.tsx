@@ -5,8 +5,10 @@ import { getActivePositions } from "@/lib/election/positions";
 import {
   getPublishedResults,
   getRunoffRounds,
+  getVacatedSeatsByPosition,
   type ResultSnapshotRow,
 } from "@/lib/election/results";
+import { computeSeatGaps, publicSeatGapLabel } from "@/lib/election/seat-gaps";
 import { candidatePhotoUrl } from "@/lib/media/candidate-photo";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -51,10 +53,11 @@ export default async function ResultadosPage() {
     );
   }
 
-  const [positions, results, runoffRounds] = await Promise.all([
+  const [positions, results, runoffRounds, vacatedSeats] = await Promise.all([
     getActivePositions(),
     getPublishedResults(election.id),
     getRunoffRounds(election.id),
+    getVacatedSeatsByPosition(election.id),
   ]);
 
   const roundsByPosition = new Map<string, (typeof runoffRounds)[number][]>();
@@ -92,7 +95,40 @@ export default async function ResultadosPage() {
             .filter((r) => r.candidate_id !== null);
           const nullRow = rows.find((r) => r.candidate_id === null);
 
-          if (rows.length === 0) return null;
+          // Nenhum snapshot para o cargo: não havia candidatura nenhuma. A
+          // seção continua aparecendo para registrar as vagas vazias —
+          // sumir daria a impressão de que o cargo não existiu.
+          if (rows.length === 0) {
+            return (
+              <section key={position.id}>
+                <h2 className="mb-3 text-lg font-semibold text-foreground">{position.name}</h2>
+                <Card>
+                  <p className="p-4 text-sm text-foreground-muted">
+                    Nenhuma candidatura registrada.{" "}
+                    {publicSeatGapLabel("sem_candidatura", position.vacancies)}
+                  </p>
+                </Card>
+              </section>
+            );
+          }
+
+          // Cargo sem disputa: ninguém votou nele. Nada de contagem, nada de
+          // classificação, nada de "votos nulos" — só quem ficou com a vaga.
+          const semDisputa = rows.some((r) => r.unopposed);
+          // A CAUSA não sai da subtração: a mesma conta descreve um cargo
+          // deserto e um cargo esvaziado por decisão de cargo duplo. Mesma
+          // função que a revisão administrativa usa, para as duas telas
+          // nunca divergirem sobre o motivo.
+          const seatGaps = computeSeatGaps({
+            vacancies: position.vacancies,
+            electedCount: rows.filter((r) => r.elected).length,
+            vacatedByDualWinner: vacatedSeats.get(position.id) ?? 0,
+            // Esta tela só existe depois da publicação, e `publish_results`
+            // recusa publicar com empate pendente. `tie_break_needed` nem é
+            // lido aqui: é dado de apuração, não de resultado divulgado.
+            seatsInRunoff: 0,
+            hasPendingTie: false,
+          });
 
           return (
             <section key={position.id}>
@@ -102,9 +138,11 @@ export default async function ResultadosPage() {
                   const photoUrl = candidatePhotoUrl(row.candidate_photo_path);
                   return (
                     <div key={row.candidate_id} className="flex items-center gap-3 p-4">
-                      <span className="w-6 shrink-0 text-center text-sm font-semibold text-foreground-muted">
-                        {row.rank}º
-                      </span>
+                      {!row.unopposed && (
+                        <span className="w-6 shrink-0 text-center text-sm font-semibold text-foreground-muted">
+                          {row.rank}º
+                        </span>
+                      )}
                       {photoUrl ? (
                         <Image
                           src={photoUrl}
@@ -125,21 +163,25 @@ export default async function ResultadosPage() {
                         )}
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
-                        <span className="text-sm font-semibold tabular-nums text-foreground">
-                          {row.votes_count} {row.votes_count === 1 ? "voto" : "votos"}
-                        </span>
+                        {!row.unopposed && (
+                          <span className="text-sm font-semibold tabular-nums text-foreground">
+                            {row.votes_count} {row.votes_count === 1 ? "voto" : "votos"}
+                          </span>
+                        )}
                         {row.elected && (
                           <Badge tone="success">
-                            {wonByRunoff.has(`${position.id}:${row.candidate_id}`)
-                              ? "Eleito por desempate"
-                              : "Eleito"}
+                            {row.unopposed
+                              ? "Eleito sem disputa"
+                              : wonByRunoff.has(`${position.id}:${row.candidate_id}`)
+                                ? "Eleito por desempate"
+                                : "Eleito"}
                           </Badge>
                         )}
                       </div>
                     </div>
                   );
                 })}
-                {nullRow && (
+                {!semDisputa && nullRow && (
                   <div className="flex items-center justify-between p-4 text-sm text-foreground-muted">
                     <span>Votos nulos</span>
                     <span className="font-medium tabular-nums text-foreground">
@@ -147,6 +189,11 @@ export default async function ResultadosPage() {
                     </span>
                   </div>
                 )}
+                {seatGaps.map((gap) => (
+                  <div key={gap.reason} className="p-4 text-sm text-foreground-muted">
+                    {publicSeatGapLabel(gap.reason, gap.seats)}
+                  </div>
+                ))}
               </Card>
 
               {/* Segunda rodada: a votação da eleição principal fica acima,

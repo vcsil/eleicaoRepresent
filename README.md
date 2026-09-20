@@ -81,6 +81,9 @@ Nunca use o prefixo `NEXT_PUBLIC_` em nenhuma das variáveis marcadas "Não".
    supabase/migrations/0017_import_voters.sql
    supabase/migrations/0018_admin_idle_timeout_10min.sql
    supabase/migrations/0019_fix_runoff_overlap_and_dual_winner_cascade.sql
+   supabase/migrations/0020_manual_release_and_uncontested.sql
+   supabase/migrations/0021_fix_ballot_acl_and_composition_atomicity.sql
+   supabase/migrations/0022_ordered_seats_and_composition_freeze.sql
    ```
 4. Rode `supabase/seed.sql` para cadastrar a eleição principal, os 6 cargos
    (13 vagas) e o cronograma oficial (seção 7 do documento técnico) — os
@@ -145,6 +148,88 @@ migration `0007_storage.sql`.
 > resultado sendo publicado assim mesmo. Aplicar é seguro a qualquer
 > momento: substitui quatro funções e troca uma restrição por um índice
 > parcial, sem tocar em voto, apuração ou resultado já gravado.
+>
+> **Já aplicou até a 0019?** A `0020_manual_release_and_uncontested.sql`
+> muda duas regras eleitorais e **precisa ser aplicada junto com o código**
+> desta versão:
+>
+> - **A votação passa a abrir por liberação explícita.** Chegar o horário
+>   do cronograma deixa de ser suficiente: enquanto
+>   `elections.voting_released_at` for nulo, o status continua
+>   `aguardando_votacao` e a urna não existe. O administrador libera em
+>   `/admin/votacao`, uma única vez — a ação é irreversível e **congela a
+>   composição** (não se cadastra, remove, ativa, inativa, renomeia,
+>   reordena nem troca o cargo de candidato depois dela; foto, frase,
+>   apresentação, propostas e vídeo continuam editáveis). **Sem aplicar a
+>   migration, o botão de liberar falha com "permission denied for function
+>   release_voting". Aplicando a migration sem subir o código, uma eleição
+>   cujo horário já chegou fica em `aguardando_votacao` até alguém liberar
+>   — e a tela para liberar ainda não existe.**
+> - **Cargo sem disputa sai da urna.** Um cargo cujos candidatos ativos não
+>   superam as vagas não aparece na cédula, `cast_ballot` não o exige, e na
+>   apuração seus candidatos são declarados eleitos com a marca
+>   `result_snapshots.unopposed` — sem voto artificial e sem exibir "0
+>   votos". Vagas sem candidato ficam registradas como não preenchidas.
+>
+> Nenhum voto, cédula ou resultado já gravado é alterado: a migration
+> acrescenta duas colunas (com valor padrão), duas funções novas e
+> substitui quatro existentes.
+>
+> **A `0021_fix_ballot_acl_and_composition_atomicity.sql` é obrigatória
+> junto com a 0020** — não é opcional nem adiável. Ela corrige quatro
+> problemas da 0020, todos reproduzidos contra o banco:
+>
+> - **`cast_ballot` voltou a ser exclusiva de `service_role`.** A 0020
+>   concedeu `EXECUTE` a `anon`/`authenticated` por engano, copiando o
+>   bloco de permissões de uma função pública. A consequência não era votar
+>   sem token: era chamar a função direto do navegador, com um token
+>   legítimo, pulando a Server Action — e portanto o schema Zod, o
+>   tratamento de erro e o registro de evento. O bypass foi demonstrado com
+>   uma cédula de 22 *allocations*, acima do teto de 20 que o Zod impõe e
+>   que a função nunca precisou ter.
+> - **A gravação de candidato virou uma transação só** (`save_candidate`).
+>   Antes eram três idas ao banco — ler o congelamento, apagar os vínculos,
+>   recriá-los — e cada intervalo era uma janela real: cargos duplicados
+>   (`[A,A]`) passavam pela comparação e quebravam no INSERT **depois** do
+>   DELETE, deixando o candidato sem cargo; uma edição só de texto apagava
+>   e recriava os vínculos, e nesse intervalo um cargo podia deixar de ter
+>   disputa e sair da cédula; e a liberação da votação podia acontecer
+>   entre a verificação e a escrita. A função toma o **mesmo lock** que
+>   `release_voting`, então uma edição concorrente ou termina inteira antes
+>   da abertura, ou é recusada.
+> - **`release_voting` recusa liberar depois do fim da janela** e passou a
+>   aceitar a impressão digital da composição que o administrador revisou,
+>   conferida dentro da mesma transação.
+> - **A apuração recusa zerar votos reais.** Veja o procedimento abaixo.
+
+### Implantação com eleição já em andamento
+
+A 0020 introduz `voting_released_at`, que **nasce nulo**. Os três cenários
+abaixo foram verificados contra um PostgreSQL de teste:
+
+| Situação no momento da migration | O que acontece | O que fazer |
+| --- | --- | --- |
+| Votação **em andamento**, com votos registrados | O status volta a `aguardando_votacao` e a urna fecha. Os votos já gravados **permanecem intactos**; novos eleitores recebem `voting_not_open`. | Liberar em `/admin/votacao` logo após aplicar. A votação retoma exatamente de onde parou, com os votos preservados. **Prefira aplicar fora da janela de votação.** |
+| Eleição **já apurada ou publicada** | Nada muda: o status continua `aguardando_divulgacao` / `resultado_disponivel`, e os snapshots seguem preservados. `voting_released_at` nulo não afeta eleição encerrada. | Nada. |
+| Cargo que **já recebeu votos** e que, pela regra nova, ficaria "sem disputa" | `compute_results` **falha** com `UNCONTESTED_POSITION_HAS_VOTES` e não grava nada. | Decisão humana — veja abaixo. |
+
+O último caso é o único que exige decisão, e ela **não foi tomada no
+código de propósito**. Sem a guarda, a apuração gravaria "eleito sem
+disputa, 0 votos" para candidatos que receberam votos de verdade: a
+contagem real desapareceria do resultado, e com ela a ordem que define os
+rótulos de assento (Primeiro/Segundo Tesoureiro). A guarda recusa e
+preserva os votos; qual regra aplicar — apurar pela contagem antiga,
+declarar sem disputa assumindo a perda da ordem, ou ajustar as vagas do
+cargo — é uma decisão da Comissão, não do sistema.
+
+**Procedimento seguro:** aplique a 0020, a 0021 e a 0022 **antes de liberar
+a votação** da eleição em que forem usadas. Aí nenhum dos três casos ocorre,
+porque a composição congela na abertura — e, desde a 0022, o congelamento
+é feito por **trigger no banco**: `candidates`, `candidate_positions` e
+`positions` recusam INSERT, DELETE e qualquer UPDATE estrutural depois da
+liberação, mesmo vindo de SQL direto no SQL Editor. Foto, frase,
+apresentação, propostas e vídeo continuam editáveis, e nos cargos também o
+nome e os textos descritivos.
 
 ## Desenvolvimento
 
@@ -219,6 +304,67 @@ cache estático), nenhuma etapa extra de revalidação é necessária.
   candidatos ativos, cronograma, resultados após publicação) tem policy de
   leitura para `anon`/`authenticated`.
 - **Detalhes completos**: seções 4-15 de `docs/TECHNICAL_DESIGN.md`.
+
+## Abertura da votação e cargos sem disputa
+
+**A urna abre por decisão, não por relógio.** O horário configurado no
+cronograma é condição necessária, não suficiente: até o administrador
+clicar em "Liberar votação" em `/admin/votacao`, o status continua
+`aguardando_votacao` e `/votar` não oferece urna nenhuma. O estado vive em
+`elections.voting_released_at` e é escrito por `release_voting`, que recusa
+liberar antes da hora inicial, fora de uma eleição geral ou depois do
+encerramento. **A liberação é irreversível** — não existe ação para
+desfazê-la, e `voting_released_at` nunca volta a ser nulo.
+
+**Liberar congela a composição.** Depois da abertura não se cadastra,
+remove, ativa, inativa, renomeia, reordena nem troca o cargo de nenhum
+candidato: mudar quem concorre mudaria a cédula debaixo de quem já votou, e
+pode até fazer um cargo inteiro entrar ou sair dela. Foto, frase,
+apresentação, propostas e vídeo continuam editáveis. A recusa acontece na
+Server Action (`upsertCandidateAction`, `setCandidateActiveAction`), não só
+na tela — um POST montado à mão é recusado igual.
+
+**Quais cargos vão à urna.** A regra é uma só, em
+`position_requires_voting` no Postgres:
+
+```
+candidatos ativos > 0  E  (seat_labels IS NOT NULL  OU  candidatos > vagas)
+```
+
+- **Cargo com assentos nomeados** (`positions.seat_labels` preenchido —
+  Tesouraria e Secretaria): vota **sempre que houver candidato**, mesmo com
+  um único nome para duas vagas. Ali a votação não decide quem entra, e sim
+  **a ordem**: quem é Primeiro e quem é Segundo.
+- **Cargo sem assentos nomeados** (Presidente, Vice, Marketing, Eventos):
+  vota só quando os candidatos superam as vagas. Caso contrário sai da
+  cédula e os candidatos são eleitos sem disputa na apuração.
+
+A distinção sai de `seat_labels`, nunca do slug do cargo. A mesma função
+monta a cédula, alimenta `get_current_voting_election`, é exigida por
+`cast_ballot` e classifica a apuração — nenhuma contagem é recalculada em
+TypeScript, e `compute_results` não repete a comparação por conta própria.
+Voto nulo não conta como candidato.
+
+**Empate que afeta só a ORDEM também vira desempate.** Num cargo de
+assentos nomeados, Ana 50 × Bruno 50 para 2 vagas elege os dois de
+qualquer forma — mas não diz quem é Primeiro. Esse empate marca
+`tie_break_needed` e bloqueia a publicação até ser resolvido. **O
+desempate de cargo ordenado dá 1 voto por eleitor**, qualquer que seja o
+número de vagas em disputa: ali se escolhe uma ordem, não um conjunto, e
+dois votos permitiriam votar nos dois e não decidir nada. Cargo sem
+assentos nomeados mantém a regra anterior (votos por eleitor = vagas em
+disputa). Empate parcial não reabre assento já definido: com Ana já
+confirmada como Primeira, o desempate disputa apenas o Segundo.
+
+**Quem não teve concorrência é eleito na apuração, não antes.**
+`compute_results` declara esses candidatos eleitos com
+`result_snapshots.unopposed = true`; as telas mostram "Eleito sem disputa"
+e omitem a contagem, porque exibir "0 votos" descreveria uma derrota, e não
+uma formalização. Nenhum voto artificial é criado e nenhuma linha de nulos
+é gerada. Vagas que sobram aparecem como não preenchidas (`vagas −
+eleitos`). Se **nenhum** cargo tiver disputa, `/votar` informa que não há
+cargos em disputa, ninguém se identifica e nenhuma cédula é criada — a
+eleição é decidida inteiramente na apuração.
 
 ## Fluxo de desempate
 

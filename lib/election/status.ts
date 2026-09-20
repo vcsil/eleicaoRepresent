@@ -21,6 +21,8 @@ export type Election = {
   parent_election_id: string | null;
   name: string;
   runoff_position_id: string | null;
+  /** Nulo até o administrador liberar a votação (migration 0020). */
+  voting_released_at: string | null;
   voting_closed_manually_at: string | null;
   results_computed_at: string | null;
   results_published_at: string | null;
@@ -31,7 +33,7 @@ async function fetchMainElection(): Promise<Election | null> {
   const { data, error } = await supabase
     .from("elections")
     .select(
-      "id, type, parent_election_id, name, runoff_position_id, voting_closed_manually_at, results_computed_at, results_published_at",
+      "id, type, parent_election_id, name, runoff_position_id, voting_released_at, voting_closed_manually_at, results_computed_at, results_published_at",
     )
     .eq("type", "general")
     .order("created_at", { ascending: true })
