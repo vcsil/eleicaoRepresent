@@ -35,15 +35,21 @@ export async function electionIsFrozen(): Promise<boolean> {
 }
 
 /**
- * Cargos com disputa, pela definição do banco (`position_is_contested`).
+ * Cargos que VÃO À URNA, pela definição do banco
+ * (`position_requires_voting`, migration 0022):
+ *
+ *   candidatos > 0 E (seat_labels IS NOT NULL OU candidatos > vagas)
+ *
+ * Cargo com assentos nomeados (Tesouraria, Secretaria) vota sempre que
+ * houver candidato, porque é a votação que define Primeiro e Segundo.
  *
  * Nunca recalculado em TypeScript: é a MESMA função que `cast_ballot` usa
  * para decidir o que a cédula precisa trazer. Duplicar a regra aqui seria
  * abrir espaço para a tela e o banco discordarem.
  */
-export async function getContestedPositionIds(): Promise<string[]> {
+export async function getVotingPositionIds(): Promise<string[]> {
   const supabase = createServiceClient();
-  const { data, error } = await supabase.rpc("contested_position_ids");
+  const { data, error } = await supabase.rpc("voting_position_ids");
   if (error) throw error;
   return (data ?? []) as string[];
 }

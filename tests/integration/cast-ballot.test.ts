@@ -4,6 +4,7 @@ import {
   pool,
   resetDatabase,
   createTestElection,
+  releaseVoting,
   createPosition,
   createCandidate,
   createVoter,
@@ -22,7 +23,7 @@ describe("cast_ballot (seções 26-40, 86, 93-94)", () => {
 
   beforeAll(async () => {
     await resetDatabase();
-    await createTestElection();
+    const electionId = await createTestElection();
 
     posA = await createPosition({ slug: "posicao-a", votesPerVoter: 1, vacancies: 1 });
     posB = await createPosition({ slug: "posicao-b", votesPerVoter: 3, vacancies: 3 });
@@ -39,6 +40,9 @@ describe("cast_ballot (seções 26-40, 86, 93-94)", () => {
     // sempre verificou (soma exata, nulo, repetição).
     await createCandidate("Candidato A2", [posA.id]);
     await createCandidate("Candidato B4", [posB.id]);
+
+    // Composição pronta: só agora a votação abre (migration 0022).
+    await releaseVoting(electionId);
   });
 
   afterAll(async () => {

@@ -171,7 +171,7 @@ describe("a gravação é uma operação só, no banco", () => {
 
 describe("tradução das recusas do banco", () => {
   for (const [codigo, trecho] of [
-    ["COMPOSITION_FROZEN", /composição da eleição não pode mais mudar/],
+    ["COMPOSITION_FROZEN", /composição eleitoral está bloqueada/],
     ["COMPOSITION_FROZEN_CREATE", /não é possível cadastrar novos candidatos/],
     ["DUPLICATE_POSITIONS", /cargos diferentes/],
     ["INVALID_POSITIONS", /cargos válidos/],
@@ -217,7 +217,7 @@ describe("chamadas externas ficam fora da transação", () => {
       form({ video_url: "https://www.youtube.com/watch?v=aaaaaaaaaaa" }),
     );
 
-    expect(result.error).toMatch(/composição/);
+    expect(result.error).toMatch(/composição eleitoral está bloqueada/);
     expect(deleteYouTubeThumbnail).toHaveBeenCalledWith(
       CANDIDATO,
       "https://www.youtube.com/watch?v=aaaaaaaaaaa",

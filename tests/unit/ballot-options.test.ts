@@ -60,15 +60,15 @@ beforeEach(() => {
   rpc.mockReset();
 });
 
-/** `contested_position_ids()` — a lista de cargos com disputa, vinda do banco. */
+/** `voting_position_ids()` — a lista de cargos que vão à urna, do banco. */
 function stubContested(ids: string[]) {
   rpc.mockImplementation(async (fn: string) =>
-    fn === "contested_position_ids" ? { data: ids, error: null } : { data: null, error: null },
+    fn === "voting_position_ids" ? { data: ids, error: null } : { data: null, error: null },
   );
 }
 
 describe("cédula da eleição geral", () => {
-  it("traz os cargos EM DISPUTA com seus candidatos", async () => {
+  it("traz os cargos QUE VÃO À URNA com seus candidatos", async () => {
     stubContested(["pos-presidente", "pos-tesouraria"]);
     const options = await getBallotOptions({ electionId: "e1", type: "general" });
 
@@ -86,10 +86,10 @@ describe("cédula da eleição geral", () => {
     ]);
   });
 
-  it("deixa de fora o cargo SEM disputa, mesmo estando ativo", async () => {
+  it("deixa de fora o cargo que NÃO vai à urna, mesmo estando ativo", async () => {
     // Tesouraria continua ativa e com candidata, mas o banco não a lista
-    // como disputada: a cédula não pode pedir um voto que `cast_ballot`
-    // nem sequer vai exigir.
+    // entre os cargos que votam: a cédula não pode pedir um voto que
+    // `cast_ballot` nem sequer vai exigir.
     stubContested(["pos-presidente"]);
     const options = await getBallotOptions({ electionId: "e1", type: "general" });
 
@@ -97,7 +97,7 @@ describe("cédula da eleição geral", () => {
     expect(options.candidatesByPosition["pos-tesouraria"]).toBeUndefined();
   });
 
-  it("sem nenhum cargo em disputa, a cédula volta vazia", async () => {
+  it("sem nenhum cargo indo à urna, a cédula volta vazia", async () => {
     stubContested([]);
     const options = await getBallotOptions({ electionId: "e1", type: "general" });
 

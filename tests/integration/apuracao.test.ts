@@ -3,6 +3,7 @@ import {
   pool,
   resetDatabase,
   createTestElection,
+  releaseVoting,
   createPosition,
   createCandidate,
   createVoter,
@@ -54,6 +55,10 @@ describe("compute_results / publish_results (seções 49, 52, 84-86, 97)", () =>
     candTieB = await createCandidate("Empate B", [posTie.id]);
     candMultiA = await createCandidate("Multi A", [posMulti.id]);
     candMultiB = await createCandidate("Multi B", [posMulti.id]);
+
+    // A liberação vem DEPOIS da composição: desde a 0022 o banco congela
+    // cargos e candidatos no momento em que a votação abre.
+    await releaseVoting(electionId);
 
     // Empate 1x1 entre candTieA e candTieB.
     await vote("Eleitor 1", [{ candidate_id: candTieA, is_null_vote: false, quantity: 1 }], [

@@ -4,7 +4,7 @@ import { getActiveCandidates } from "@/lib/election/candidates";
 import { createServiceClient } from "@/lib/supabase/service";
 import type { VoteSessionElection } from "@/lib/election/vote-session";
 import { compareCandidatesByName } from "@/lib/election/display-order";
-import { getContestedPositionIds } from "@/lib/election/composition-freeze";
+import { getVotingPositionIds } from "@/lib/election/composition-freeze";
 
 export type WizardPosition = {
   id: string;
@@ -24,23 +24,28 @@ export type BallotOptions = {
 };
 
 /**
- * Cédula da eleição geral: os cargos ativos COM DISPUTA e seus candidatos.
+ * Cédula da eleição geral: os cargos ativos QUE VÃO À URNA e seus
+ * candidatos.
  *
- * Cargo cujos candidatos ativos não superam as vagas fica de fora — não há
- * escolha a fazer, e pedir um voto obrigatório ali seria encenação. A lista
- * vem de `contested_position_ids()`, a mesma que `cast_ballot` exige: a
- * cédula não pode trazer um cargo que o envio vai recusar, nem faltar um
- * que ele vai cobrar.
+ * Cargo sem assento nomeado cujos candidatos não superam as vagas fica de
+ * fora — não há escolha a fazer, e pedir um voto obrigatório ali seria
+ * encenação. Cargo COM assento nomeado (Tesouraria, Secretaria) entra
+ * sempre que houver candidato, porque ali a votação define a ordem dos
+ * assentos, não só quem entra.
+ *
+ * A lista vem de `voting_position_ids()`, a mesma regra que `cast_ballot`
+ * exige: a cédula não pode trazer um cargo que o envio vai recusar, nem
+ * faltar um que ele vai cobrar.
  */
 async function getGeneralBallotOptions(): Promise<BallotOptions> {
-  const [todasPositions, candidates, contestedIds] = await Promise.all([
+  const [todasPositions, candidates, votingIds] = await Promise.all([
     getActivePositions(),
     getActiveCandidates(),
-    getContestedPositionIds(),
+    getVotingPositionIds(),
   ]);
 
-  const contested = new Set(contestedIds);
-  const positions = todasPositions.filter((p) => contested.has(p.id));
+  const vaiAUrna = new Set(votingIds);
+  const positions = todasPositions.filter((p) => vaiAUrna.has(p.id));
 
   const candidatesByPosition: Record<string, WizardCandidate[]> = {};
   for (const position of positions) {

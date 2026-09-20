@@ -3,6 +3,7 @@ import {
   pool,
   resetDatabase,
   createTestElection,
+  releaseVoting,
   createPosition,
   createCandidate,
   createVoter,
@@ -57,6 +58,7 @@ describe("F — cargo sem candidatura não gera snapshot", () => {
     const outro = await createPosition({ vacancies: 1, votesPerVoter: 1, slug: "com-disputa" });
     const a = await createCandidate("Alguem A", [outro.id]);
     await createCandidate("Alguem B", [outro.id]);
+    await releaseVoting(electionId);
 
     await votar(electionId, "Eleitor F1", [{ positionId: outro.id, candidateId: a }]);
     await closeVoting(electionId);
@@ -81,6 +83,7 @@ describe("G — os três fatos que distinguem a causa", () => {
     const pos = await createPosition({ vacancies: 1, votesPerVoter: 1, slug: "empatado" });
     const a = await createCandidate("Empate A", [pos.id]);
     const b = await createCandidate("Empate B", [pos.id]);
+    await releaseVoting(electionId);
 
     await votar(electionId, "Eleitor G1", [{ positionId: pos.id, candidateId: a }]);
     await votar(electionId, "Eleitor G2", [{ positionId: pos.id, candidateId: b }]);
@@ -108,6 +111,7 @@ describe("G — os três fatos que distinguem a causa", () => {
 
     const x = await createCandidate("Duplo X", [posP.id, posM.id]);
     await createCandidate("Perde P", [posP.id]);
+    await releaseVoting(electionId);
 
     await votar(electionId, "Eleitor G3", [{ positionId: posP.id, candidateId: x }]);
     await closeVoting(electionId);
@@ -154,6 +158,7 @@ describe("G — os três fatos que distinguem a causa", () => {
     const x = await createCandidate("Prom X", [posP.id, posM.id]);
     const y = await createCandidate("Prom Y", [posM.id]);
     await createCandidate("Prom Z", [posP.id]);
+    await releaseVoting(electionId);
 
     await votar(electionId, "Eleitor G4", [
       { positionId: posP.id, candidateId: x },
@@ -188,6 +193,7 @@ describe("G — os três fatos que distinguem a causa", () => {
     const electionId = await createTestElection();
     const pos = await createPosition({ vacancies: 2, votesPerVoter: 2, slug: "sobra" });
     await createCandidate("Unico", [pos.id]);
+    await releaseVoting(electionId);
 
     await closeVoting(electionId);
     await q("select compute_results($1)", [electionId]);
@@ -220,6 +226,7 @@ describe("guarda de migração: cargo sem disputa que já recebeu voto", () => {
     const pos = await createPosition({ vacancies: 2, votesPerVoter: 2, slug: "historico" });
     const c = await createCandidate("Historico C", [pos.id]);
     await createCandidate("Historico D", [pos.id]);
+    await releaseVoting(electionId);
 
     // Pela regra nova este cargo não tem disputa.
     expect((await q(`select position_is_contested($1) as c`, [pos.id]))[0].c).toBe(false);
@@ -269,6 +276,7 @@ describe("guarda de migração: cargo sem disputa que já recebeu voto", () => {
     const pos = await createPosition({ vacancies: 2, votesPerVoter: 2, slug: "limpo" });
     await createCandidate("Limpo A", [pos.id]);
     await createCandidate("Limpo B", [pos.id]);
+    await releaseVoting(electionId);
 
     await closeVoting(electionId);
     await expect(q(`select compute_results($1)`, [electionId])).resolves.toBeDefined();

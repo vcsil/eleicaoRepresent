@@ -42,8 +42,8 @@ export default async function AdminVotacaoPage() {
         <div className="mt-3">
           <ReleaseVotingPanel
             electionId={election.id}
-            contested={composition.contested}
-            uncontested={composition.uncontested}
+            voting={composition.voting}
+            nonVoting={composition.nonVoting}
             released={released}
             canRelease={canRelease}
             compositionDigest={composition.digest}

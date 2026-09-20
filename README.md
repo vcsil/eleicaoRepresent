@@ -83,6 +83,7 @@ Nunca use o prefixo `NEXT_PUBLIC_` em nenhuma das variáveis marcadas "Não".
    supabase/migrations/0019_fix_runoff_overlap_and_dual_winner_cascade.sql
    supabase/migrations/0020_manual_release_and_uncontested.sql
    supabase/migrations/0021_fix_ballot_acl_and_composition_atomicity.sql
+   supabase/migrations/0022_ordered_seats_and_composition_freeze.sql
    ```
 4. Rode `supabase/seed.sql` para cadastrar a eleição principal, os 6 cargos
    (13 vagas) e o cronograma oficial (seção 7 do documento técnico) — os
@@ -221,10 +222,14 @@ preserva os votos; qual regra aplicar — apurar pela contagem antiga,
 declarar sem disputa assumindo a perda da ordem, ou ajustar as vagas do
 cargo — é uma decisão da Comissão, não do sistema.
 
-**Procedimento seguro:** aplique a 0020 e a 0021 **antes de liberar a
-votação** da eleição em que forem usadas. Aí nenhum dos três casos ocorre,
-porque a composição congela na abertura e as vagas dos cargos não são
-editáveis por nenhuma tela do painel.
+**Procedimento seguro:** aplique a 0020, a 0021 e a 0022 **antes de liberar
+a votação** da eleição em que forem usadas. Aí nenhum dos três casos ocorre,
+porque a composição congela na abertura — e, desde a 0022, o congelamento
+é feito por **trigger no banco**: `candidates`, `candidate_positions` e
+`positions` recusam INSERT, DELETE e qualquer UPDATE estrutural depois da
+liberação, mesmo vindo de SQL direto no SQL Editor. Foto, frase,
+apresentação, propostas e vídeo continuam editáveis, e nos cargos também o
+nome e os textos descritivos.
 
 ## Desenvolvimento
 
@@ -319,21 +324,37 @@ apresentação, propostas e vídeo continuam editáveis. A recusa acontece na
 Server Action (`upsertCandidateAction`, `setCandidateActiveAction`), não só
 na tela — um POST montado à mão é recusado igual.
 
-**Cargo sem disputa não vai à urna.** Se os candidatos ativos de um cargo
-não superam suas vagas, não há escolha a fazer: o cargo sai da cédula,
-`cast_ballot` não exige voto para ele, e um payload que o inclua é
-rejeitado. Quem decide é `position_is_contested` no Postgres — a mesma
-função que monta a cédula e que valida o envio, nunca uma contagem
-recalculada em TypeScript. Voto nulo não conta como candidato.
+**Quais cargos vão à urna.** A regra é uma só, em
+`position_requires_voting` no Postgres:
 
-**Ordenação dos assentos sem disputa — decisão pendente.** Quando um cargo
-com assentos nomeados (Primeiro/Segundo Tesoureiro, Primeiro/Segundo
-Secretário) é decidido sem disputa, não há contagem de votos para ordenar
-os eleitos, e a implementação atual atribui os assentos por
-`display_order` e, no empate, por nome. **Esse critério não consta de
-nenhuma regra aprovada** — `docs/TECHNICAL_DESIGN.md` só descreve a ordem
-por votação. Enquanto a Comissão não definir a regra, trate a ordem
-exibida nesse caso como provisória e confira antes de publicar.
+```
+candidatos ativos > 0  E  (seat_labels IS NOT NULL  OU  candidatos > vagas)
+```
+
+- **Cargo com assentos nomeados** (`positions.seat_labels` preenchido —
+  Tesouraria e Secretaria): vota **sempre que houver candidato**, mesmo com
+  um único nome para duas vagas. Ali a votação não decide quem entra, e sim
+  **a ordem**: quem é Primeiro e quem é Segundo.
+- **Cargo sem assentos nomeados** (Presidente, Vice, Marketing, Eventos):
+  vota só quando os candidatos superam as vagas. Caso contrário sai da
+  cédula e os candidatos são eleitos sem disputa na apuração.
+
+A distinção sai de `seat_labels`, nunca do slug do cargo. A mesma função
+monta a cédula, alimenta `get_current_voting_election`, é exigida por
+`cast_ballot` e classifica a apuração — nenhuma contagem é recalculada em
+TypeScript, e `compute_results` não repete a comparação por conta própria.
+Voto nulo não conta como candidato.
+
+**Empate que afeta só a ORDEM também vira desempate.** Num cargo de
+assentos nomeados, Ana 50 × Bruno 50 para 2 vagas elege os dois de
+qualquer forma — mas não diz quem é Primeiro. Esse empate marca
+`tie_break_needed` e bloqueia a publicação até ser resolvido. **O
+desempate de cargo ordenado dá 1 voto por eleitor**, qualquer que seja o
+número de vagas em disputa: ali se escolhe uma ordem, não um conjunto, e
+dois votos permitiriam votar nos dois e não decidir nada. Cargo sem
+assentos nomeados mantém a regra anterior (votos por eleitor = vagas em
+disputa). Empate parcial não reabre assento já definido: com Ana já
+confirmada como Primeira, o desempate disputa apenas o Segundo.
 
 **Quem não teve concorrência é eleito na apuração, não antes.**
 `compute_results` declara esses candidatos eleitos com

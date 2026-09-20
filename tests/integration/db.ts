@@ -66,14 +66,22 @@ export async function createTestElection(released = true): Promise<string> {
     [electionId, order++],
   );
 
-  // Liberada por padrão: desde a migration 0020 a janela não basta para a
-  // votação estar em andamento. Quem testa a LIBERAÇÃO em si usa
-  // `createUnreleasedElection`.
-  if (released) {
-    await pool.query(`update elections set voting_released_at = now() where id = $1`, [electionId]);
-  }
-
+  // NÃO libera aqui. Desde a migration 0022 a composição congela na
+  // liberação por TRIGGER, então cadastrar cargo ou candidato depois dela
+  // é recusado pelo banco — como na eleição real. Os fixtures montam a
+  // composição primeiro e chamam `releaseVoting` no fim, nessa ordem.
+  void released;
   return electionId;
+}
+
+/**
+ * Libera a votação, como o administrador faria em /admin/votacao.
+ *
+ * Chame DEPOIS de criar cargos e candidatos: a partir daqui a composição
+ * está congelada e o banco recusa alterá-la.
+ */
+export async function releaseVoting(electionId: string): Promise<void> {
+  await pool.query(`select release_voting($1)`, [electionId]);
 }
 
 /** Eleição com a janela aberta mas AINDA NÃO liberada pelo administrador. */

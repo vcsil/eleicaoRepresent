@@ -17,8 +17,10 @@ import {
 
 export type CandidateFormState = { error: string | null };
 
+// Sem `export`: num arquivo "use server" só podem sair funções async — e
+// isso não aparece em tsc nem em lint, só no build.
 const COMPOSICAO_CONGELADA =
-  "A votação já foi liberada: a composição da eleição não pode mais mudar. " +
+  "A composição eleitoral está bloqueada porque a votação já foi liberada. " +
   "Foto, frase, apresentação, propostas e vídeo continuam editáveis.";
 
 /**
@@ -137,7 +139,10 @@ export async function upsertCandidateAction(
     const code = error.message.trim();
     if (code === "COMPOSITION_FROZEN") return { error: COMPOSICAO_CONGELADA };
     if (code === "COMPOSITION_FROZEN_CREATE") {
-      return { error: "A votação já foi liberada: não é possível cadastrar novos candidatos." };
+      return {
+        error:
+          "A composição eleitoral está bloqueada porque a votação já foi liberada: não é possível cadastrar novos candidatos.",
+      };
     }
     if (code === "DUPLICATE_POSITIONS") return { error: "Escolha dois cargos diferentes." };
     if (code === "INVALID_POSITIONS") {
@@ -191,7 +196,13 @@ export async function setCandidateActiveAction(candidateId: string, active: bool
     p_candidate_id: candidateId,
     p_active: active,
   });
-  if (error) throw new Error(error.message.trim());
+  if (error) {
+    // Mensagem legível, mas com o código preservado para quem inspeciona o
+    // log: o botão some quando congelado, então chegar aqui já é sinal de
+    // requisição fora do fluxo normal.
+    const code = error.message.trim();
+    throw new Error(code === "COMPOSITION_FROZEN" ? `COMPOSITION_FROZEN: ${COMPOSICAO_CONGELADA}` : code);
+  }
 
   await logAdminAction(active ? "CANDIDATE_REACTIVATED" : "CANDIDATE_DEACTIVATED", { candidateId });
   invalidateCandidateCaches();

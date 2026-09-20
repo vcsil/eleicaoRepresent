@@ -174,13 +174,20 @@ describe("o painel de liberação avisa o que a ação implica", () => {
     }
   });
 
-  it("mostra os cargos com disputa e os sem disputa separadamente", () => {
+  it("separa os cargos que votam dos que são decididos na apuração", () => {
     expect(painel).toContain("Cargos que irão à urna");
-    expect(painel).toContain("Cargos sem disputa");
+    expect(painel).toContain("Cargos decididos sem votação");
   });
 
-  it("explica o que acontece quando nenhum cargo tem disputa", () => {
-    expect(painel).toMatch(/Nenhum cargo tem disputa/);
+  it("sinaliza o cargo de assentos nomeados, que vota mesmo sem concorrência", () => {
+    // É a diferença que o edital introduz: Tesouraria e Secretaria vão à
+    // urna para definir Primeiro e Segundo, não para decidir quem entra.
+    expect(painel).toContain("orderedSeats");
+    expect(painel).toMatch(/Assentos nomeados/);
+  });
+
+  it("explica o que acontece quando nenhum cargo vai à urna", () => {
+    expect(painel).toMatch(/Nenhum cargo vai à urna/);
   });
 
   it("não existe ação de desfazer a liberação", () => {

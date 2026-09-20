@@ -4,6 +4,7 @@ import {
   pool,
   resetDatabase,
   createTestElection,
+  releaseVoting,
   createUnreleasedElection,
   createPosition,
   createCandidate,
@@ -208,6 +209,7 @@ describe("C — edição informativa não toca nos vínculos", () => {
     await createCandidate("Disputa A2", [posA.id]);
     const b1 = await createCandidate("Disputa B1", [posB.id]);
     await createCandidate("Disputa B2", [posB.id]);
+    await releaseVoting(electionId);
 
     expect(await q(`select contested_position_ids() as ids`)).toEqual([
       { ids: expect.arrayContaining([posA.id, posB.id]) },
@@ -257,7 +259,7 @@ describe("C — edição informativa não toca nos vínculos", () => {
 describe("congelamento depois da liberação", () => {
   it("recusa trocar nome, ordem, ativação e cargos", async () => {
     const id = await salvar(null, { full_name: "Congelado", position_ids: [posA.id] });
-    await createTestElection(); // já liberada
+    await releaseVoting(await createTestElection());
 
     for (const mudanca of [
       { full_name: "Outro Nome" },
@@ -276,7 +278,7 @@ describe("congelamento depois da liberação", () => {
 
   it("aceita edição informativa com a composição intacta", async () => {
     const id = await salvar(null, { full_name: "Congelado", position_ids: [posA.id] });
-    await createTestElection();
+    await releaseVoting(await createTestElection());
 
     await salvar(id, {
       full_name: "Congelado",
@@ -290,7 +292,7 @@ describe("congelamento depois da liberação", () => {
   });
 
   it("recusa cadastrar candidato novo", async () => {
-    await createTestElection();
+    await releaseVoting(await createTestElection());
     await expect(
       salvar(null, { full_name: "Tardio", position_ids: [posA.id] }),
     ).rejects.toThrow(/COMPOSITION_FROZEN_CREATE/);
@@ -298,7 +300,7 @@ describe("congelamento depois da liberação", () => {
 
   it("set_candidate_active recusa ativar e inativar", async () => {
     const id = await salvar(null, { full_name: "Ativo", position_ids: [posA.id] });
-    await createTestElection();
+    await releaseVoting(await createTestElection());
 
     for (const ativo of [true, false]) {
       await expect(q(`select set_candidate_active($1, $2)`, [id, ativo])).rejects.toThrow(

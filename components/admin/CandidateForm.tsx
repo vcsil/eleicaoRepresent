@@ -36,8 +36,9 @@ export function CandidateForm({
 
       {frozen && (
         <p className="rounded-md bg-warning-bg px-3.5 py-2.5 text-sm text-warning">
-          A votação já foi liberada: nome, cargos, ordem e ativação estão congelados. Foto,
-          frase, apresentação, propostas e vídeo continuam editáveis.
+          A composição eleitoral está bloqueada porque a votação já foi liberada: nome,
+          cargos, ordem e ativação estão congelados. Foto, frase, apresentação, propostas e
+          vídeo continuam editáveis.
         </p>
       )}
 

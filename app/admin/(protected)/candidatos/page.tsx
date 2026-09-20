@@ -30,9 +30,10 @@ export default async function AdminCandidatosPage() {
 
       {frozen && (
         <p className="mt-4 rounded-md bg-warning-bg px-3.5 py-2.5 text-sm text-warning">
-          A votação já foi liberada: a composição está congelada. Não é possível cadastrar,
-          remover, ativar, inativar, renomear, reordenar nem trocar o cargo de candidatos. Foto,
-          frase, apresentação, propostas e vídeo continuam editáveis.
+          A composição eleitoral está bloqueada porque a votação já foi liberada. Não é
+          possível cadastrar, remover, ativar, inativar, renomear, reordenar nem trocar o cargo
+          de candidatos — nem por aqui, nem direto no banco. Foto, frase, apresentação,
+          propostas e vídeo continuam editáveis.
         </p>
       )}
 

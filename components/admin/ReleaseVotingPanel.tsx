@@ -10,6 +10,8 @@ export type ReleasePreviewPosition = {
   name: string;
   vacancies: number;
   activeCandidates: number;
+  /** Assentos nomeados (Primeiro/Segundo): a votação define a ordem. */
+  orderedSeats: boolean;
 };
 
 /**
@@ -23,15 +25,15 @@ export type ReleasePreviewPosition = {
  */
 export function ReleaseVotingPanel({
   electionId,
-  contested,
-  uncontested,
+  voting,
+  nonVoting,
   released,
   canRelease,
   compositionDigest,
 }: {
   electionId: string;
-  contested: ReleasePreviewPosition[];
-  uncontested: ReleasePreviewPosition[];
+  voting: ReleasePreviewPosition[];
+  nonVoting: ReleasePreviewPosition[];
   released: boolean;
   canRelease: boolean;
   /** Digital da composição que ESTE resumo descreve (conferida no banco). */
@@ -84,18 +86,23 @@ export function ReleaseVotingPanel({
 
           <section>
             <h3 className="font-semibold text-foreground">Cargos que irão à urna</h3>
-            {contested.length === 0 ? (
+            {voting.length === 0 ? (
               <p className="mt-1 text-foreground-muted">
-                Nenhum cargo tem disputa. Nenhum voto será registrado, e todos os candidatos
-                serão definidos sem disputa na apuração.
+                Nenhum cargo vai à urna. Nenhum voto será registrado, e todos os candidatos
+                serão definidos na apuração.
               </p>
             ) : (
               <ul className="mt-1 space-y-1 text-foreground-muted">
-                {contested.map((position) => (
+                {voting.map((position) => (
                   <li key={position.id}>
                     {position.name} — {position.activeCandidates}{" "}
                     {position.activeCandidates === 1 ? "candidato" : "candidatos"} para{" "}
                     {position.vacancies} {position.vacancies === 1 ? "vaga" : "vagas"}
+                    {position.orderedSeats && (
+                      <span className="block text-xs">
+                        Assentos nomeados: a votação define a ordem dos eleitos.
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -103,13 +110,13 @@ export function ReleaseVotingPanel({
           </section>
 
           <section>
-            <h3 className="font-semibold text-foreground">Cargos sem disputa</h3>
-            {uncontested.length === 0 ? (
+            <h3 className="font-semibold text-foreground">Cargos decididos sem votação</h3>
+            {nonVoting.length === 0 ? (
               <p className="mt-1 text-foreground-muted">Nenhum.</p>
             ) : (
               <>
                 <ul className="mt-1 space-y-1 text-foreground-muted">
-                  {uncontested.map((position) => (
+                  {nonVoting.map((position) => (
                     <li key={position.id}>
                       {position.name} — {position.activeCandidates}{" "}
                       {position.activeCandidates === 1 ? "candidato" : "candidatos"} para{" "}

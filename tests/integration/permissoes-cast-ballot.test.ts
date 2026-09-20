@@ -3,6 +3,7 @@ import {
   pool,
   resetDatabase,
   createTestElection,
+  releaseVoting,
   createPosition,
   createCandidate,
   createVoter,
@@ -45,6 +46,9 @@ async function cenario() {
   const pos = await createPosition({ vacancies: 1, votesPerVoter: 1, slug: "acl" });
   const a = await createCandidate("Candidato ACL A", [pos.id]);
   await createCandidate("Candidato ACL B", [pos.id]);
+
+  // Só agora a votação abre: a composição congela na liberação (0022).
+  await releaseVoting(electionId);
 
   const nome = `Eleitor ACL ${Date.now()}`;
   const voter = await createVoter(nome);

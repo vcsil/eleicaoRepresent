@@ -3,6 +3,7 @@ import {
   pool,
   resetDatabase,
   createTestElection,
+  releaseVoting,
   createUnreleasedElection,
   createPosition,
   createCandidate,
@@ -142,6 +143,9 @@ describe("a urna só recebe cargos disputados", () => {
     const u1 = await createCandidate("Unico 1", [semDisputa.id]);
     const u2 = await createCandidate("Unico 2", [semDisputa.id]);
 
+    // Composição pronta: só agora a votação abre (migration 0022).
+    await releaseVoting(electionId);
+
     return { electionId, disputado, semDisputa, a, u1, u2 };
   }
 
@@ -205,6 +209,7 @@ describe("a urna só recebe cargos disputados", () => {
     const electionId = await createTestElection();
     const pos = await createPosition({ vacancies: 2, votesPerVoter: 2 });
     await createCandidate("Sozinho", [pos.id]);
+    await releaseVoting(electionId);
 
     const [row] = await q("select get_current_voting_election() as e");
     const ativa = row.e as { positions: unknown[] } | null;
@@ -299,6 +304,7 @@ describe("apuração de cargos sem disputa", () => {
     const pos = await createPosition({ vacancies: 1, votesPerVoter: 1 });
     const a = await createCandidate("Concorrente A", [pos.id]);
     await createCandidate("Concorrente B", [pos.id]);
+    await releaseVoting(electionId);
 
     const voter = await createVoter("Eleitor Disputa");
     const sessao = await validateVoter(electionId, voter.registrationNumber, "Eleitor Disputa");
@@ -319,29 +325,11 @@ describe("apuração de cargos sem disputa", () => {
     expect(eleito.unopposed).toBe(false);
   });
 
-  it("rótulo de assento é aplicado também a quem foi eleito sem disputa", async () => {
-    // Ocupar a vaga por falta de concorrente não muda a vaga ocupada: se o
-    // cargo nomeia seus assentos, o eleito sem disputa recebe o nome do
-    // seu, na mesma ordem que receberia depois de uma votação.
-    const electionId = await createTestElection();
-    const pos = await createPosition({ vacancies: 2, votesPerVoter: 2 });
-    await q("update positions set seat_labels = array['Titular', 'Suplente'] where id = $1", [
-      pos.id,
-    ]);
-    await createCandidate("Aaa Primeiro", [pos.id]);
-    await createCandidate("Bbb Segundo", [pos.id]);
-
-    await closeVoting(electionId);
-    await q("select compute_results($1)", [electionId]);
-
-    const linhas = await q(
-      `select candidate_name, seat_label from result_snapshots
-        where election_id = $1 and position_id = $2 and candidate_id is not null
-        order by rank`,
-      [electionId, pos.id],
-    );
-    expect(linhas.map((l) => l.seat_label)).toEqual(["Titular", "Suplente"]);
-  });
+  // O antigo teste de rótulo em cargo SEM disputa foi removido: desde a
+  // 0022, cargo com `seat_labels` SEMPRE vai à urna (é a votação que define
+  // quem é Primeiro e quem é Segundo), então ele nunca chega ao caminho de
+  // "eleito sem disputa". A ordenação por votos está coberta em
+  // `tests/integration/assentos-ordenados.test.ts`.
 
   it("eleição só com cargos sem disputa é apurada e publicada normalmente", async () => {
     const electionId = await createTestElection();
@@ -389,9 +377,12 @@ describe("E — limites da janela de votação na liberação", () => {
 
   it("modal carregado durante a janela e confirmado depois: recusa", async () => {
     const id = await janela(-1, 1);
-    // A janela fecha entre abrir o modal e confirmar.
+    // A janela fecha entre abrir o modal e confirmar. A data é bem no
+    // passado de propósito: `current_date - 1` às 23:59:59 em São Paulo
+    // ainda é futuro enquanto o UTC está entre 00h e 03h, e o teste
+    // passaria a depender da hora em que roda.
     await q(
-      `update election_phases set ends_on = current_date - 1
+      `update election_phases set starts_on = current_date - 6, ends_on = current_date - 5
         where election_id = $1 and phase_key = 'votacao'`,
       [id],
     );
@@ -404,7 +395,7 @@ describe("E — limites da janela de votação na liberação", () => {
     const id = await janela(-1, 1);
     const [primeira] = await q("select release_voting($1) as t", [id]);
     await q(
-      `update election_phases set ends_on = current_date - 1
+      `update election_phases set starts_on = current_date - 6, ends_on = current_date - 5
         where election_id = $1 and phase_key = 'votacao'`,
       [id],
     );

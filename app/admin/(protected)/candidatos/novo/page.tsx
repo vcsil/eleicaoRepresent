@@ -19,7 +19,7 @@ export default async function NovoCandidatoPage() {
       <div className="max-w-xl">
         <EmptyState
           title="Composição congelada"
-          description="A votação já foi liberada: não é possível cadastrar novos candidatos."
+          description="A composição eleitoral está bloqueada porque a votação já foi liberada: não é possível cadastrar novos candidatos."
           action={<Button href="/admin/candidatos">Voltar aos candidatos</Button>}
         />
       </div>

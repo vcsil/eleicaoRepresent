@@ -1,5 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { pool, resetDatabase, createTestElection, createVoter, validateVoter } from "./db";
+import {
+  pool,
+  resetDatabase,
+  createTestElection,
+  releaseVoting,
+  createVoter,
+  validateVoter,
+} from "./db";
 
 describe("validate_voter (seção 92)", () => {
   let electionId: string;
@@ -7,6 +14,7 @@ describe("validate_voter (seção 92)", () => {
   beforeAll(async () => {
     await resetDatabase();
     electionId = await createTestElection();
+    await releaseVoting(electionId);
   });
 
   afterAll(async () => {
