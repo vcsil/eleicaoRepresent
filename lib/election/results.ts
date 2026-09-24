@@ -137,7 +137,7 @@ export const getRunoffRounds = unstable_cache(fetchRunoffRounds, ["runoff-rounds
  * candidatos": a diferença `vagas − eleitos` é a mesma nos dois casos, e
  * só o registro em `seat_reassignments` distingue um do outro.
  */
-async function fetchVacatedSeats(electionId: string): Promise<Map<string, number>> {
+async function fetchVacatedSeats(electionId: string): Promise<Record<string, number>> {
   // Cliente de serviço, e não o anônimo: `seat_reassignments` é
   // deny-by-default e não tem (nem deve ganhar) policy de leitura pública —
   // antes da divulgação ela revelaria composição apurada.
@@ -155,7 +155,7 @@ async function fetchVacatedSeats(electionId: string): Promise<Map<string, number
     .maybeSingle();
 
   if (electionError) throw electionError;
-  if (!election?.results_published_at) return new Map();
+  if (!election?.results_published_at) return {};
 
   const { data, error } = await supabase
     .from("seat_reassignments")
@@ -164,19 +164,36 @@ async function fetchVacatedSeats(electionId: string): Promise<Map<string, number
 
   if (error) throw error;
 
-  const porCargo = new Map<string, number>();
+  const porCargo: Record<string, number> = {};
   for (const row of (data ?? []) as {
     position_id: string;
     promoted_candidate_id: string | null;
   }[]) {
     if (row.promoted_candidate_id !== null) continue;
-    porCargo.set(row.position_id, (porCargo.get(row.position_id) ?? 0) + 1);
+    porCargo[row.position_id] = (porCargo[row.position_id] ?? 0) + 1;
   }
   return porCargo;
 }
 
-export const getVacatedSeatsByPosition = unstable_cache(
-  fetchVacatedSeats,
-  ["vacated-seats"],
-  { tags: [CACHE_TAGS.publishedResults], revalidate: false },
-);
+/**
+ * O que ATRAVESSA o cache precisa ser serializável.
+ *
+ * `unstable_cache` grava o retorno no Data Cache e o reidrata como JSON.
+ * Um `Map` sobrevive à primeira requisição (cache MISS devolve o valor em
+ * memória) e vira `{}` em todas as seguintes — sem `.get`, sem entradas.
+ * Foi isso que derrubou /resultados depois da publicação: a primeira
+ * visita funcionava, a segunda respondia 500.
+ *
+ * Por isso o cache guarda um `Record` e o `Map` é montado DEPOIS, fora
+ * dele. A assinatura pública continua a mesma.
+ */
+const getVacatedSeatsRecord = unstable_cache(fetchVacatedSeats, ["vacated-seats"], {
+  tags: [CACHE_TAGS.publishedResults],
+  revalidate: false,
+});
+
+export async function getVacatedSeatsByPosition(
+  electionId: string,
+): Promise<Map<string, number>> {
+  return new Map(Object.entries(await getVacatedSeatsRecord(electionId)));
+}
